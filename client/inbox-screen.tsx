@@ -101,10 +101,12 @@ function useStyles(theme: Theme, compact: boolean) {
         paddingTop: 6,
         paddingBottom: 8,
       },
-      placeHost: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.2 },
-      placeProject: { color: theme.colors.foreground, fontSize: 12, fontWeight: "500" as const },
-      placeSep: { color: muted, fontSize: 12 },
-      placeWorkspace: { color: muted, fontSize: 12 },
+      columnTitle: {
+        flex: 1,
+        color: theme.colors.foreground,
+        fontSize: 14,
+        fontWeight: "600" as const,
+      },
       // Same outer edge as the columns and cards below.
       header: {
         ...row,
@@ -143,12 +145,20 @@ function useStyles(theme: Theme, compact: boolean) {
       cardHovered: { backgroundColor: theme.colors.surface2 },
       cardBody: { gap: 4 },
       cardMetaPress: { flex: 1, minHeight: 26, justifyContent: "center" as const },
-      cardTop: { ...row, gap: 8 },
-      cardPlace: { flex: 1, fontSize: 12 },
-      cardTitle: { color: theme.colors.foreground, fontSize: 15, fontWeight: "600" as const },
+      cardTop: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 8 },
+      cardTitle: {
+        flex: 1,
+        color: theme.colors.foreground,
+        fontSize: 15,
+        fontWeight: "600" as const,
+      },
+      cardStatus: { ...row, gap: 4, paddingTop: 2 },
+      cardPlace: { color: muted, fontSize: 13 },
       // Tall enough for the action buttons, so revealing them never resizes the card.
       cardBottom: { ...row, gap: 8, minHeight: 26 },
-      cardMeta: { flex: 1, color: muted, fontSize: 12 },
+      cardMeta: { ...row, flexWrap: "wrap" as const, columnGap: 10, rowGap: 2 },
+      metaItem: { ...row, gap: 4, minWidth: 0, flexShrink: 1 },
+      metaText: { color: muted, fontSize: 12, opacity: 0.85, flexShrink: 1 },
       time: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
       working: { ...row, gap: 4 },
       workingText: {
@@ -158,21 +168,26 @@ function useStyles(theme: Theme, compact: boolean) {
         fontVariant: ["tabular-nums" as const],
       },
       // Opaque, because section headers stick to the top of their scroll view.
+      // Far from the group above, close to its own rows, so each group reads as one block.
       sectionHeader: {
         ...row,
         gap: 6,
         backgroundColor: theme.colors.surface0,
         paddingHorizontal: inset,
-        paddingTop: 14,
-        paddingBottom: 6,
+        paddingTop: 18,
+        paddingBottom: 4,
       },
-      sectionTitle: { flex: 1, color: muted, fontSize: 13, fontWeight: "600" as const },
+      sectionTitle: { flex: 1, color: muted, fontSize: 12, fontWeight: "700" as const },
       sectionCount: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
-      line: { ...row, gap: 6, minHeight: 38, paddingRight: inset, borderRadius: 8 },
-      linePress: { ...row, flex: 1, gap: 10, alignSelf: "stretch" as const },
+      line: { ...row, gap: 6, minHeight: 34, paddingRight: inset, borderRadius: 8 },
+      linePress: { ...row, flex: 1, gap: 8, alignSelf: "stretch" as const },
       lineInset: inset,
-      lineTitle: { flex: 1, color: theme.colors.foreground, fontSize: 14 },
-      lineProject: { color: muted, fontSize: 12 },
+      // Rows in Later are done or parked: quieter than headers and cards until hovered.
+      lineTitle: { flex: 1, color: muted, fontSize: 14 },
+      lineTitleHovered: { color: theme.colors.foreground },
+      lineProject: { color: muted, fontSize: 12, opacity: 0.75 },
+      lineHost: { ...row, gap: 3 },
+      lineHostText: { color: muted, fontSize: 11, opacity: 0.85 },
       lineHovered: { backgroundColor: theme.colors.surface1 },
       snoozeTime: { ...row, gap: 4 },
       snoozeText: {
@@ -326,28 +341,22 @@ function InboxSections({
     </Pressable>
   );
 
-  /** Host, project and workspace, each with its own weight so they read as three things. */
-  const place = (item: InboxItem) => {
+  /** "project / workspace", the workspace dropped when it repeats the project. */
+  const placeText = (item: InboxItem) => {
     const { project } = item.entry;
     const workspace = project.workspaceName?.trim();
-    return (
-      <Text style={styles.cardPlace} numberOfLines={1}>
-        {multiHost && item.host ? (
-          <Text style={[styles.placeHost, { color: hostColor(item.host) }]}>
-            {item.host.label}
-            {"   "}
-          </Text>
-        ) : null}
-        <Text style={styles.placeProject}>{project.projectName}</Text>
-        {workspace && workspace !== project.projectName ? (
-          <>
-            <Text style={styles.placeSep}>{"  /  "}</Text>
-            <Text style={styles.placeWorkspace}>{workspace}</Text>
-          </>
-        ) : null}
-      </Text>
-    );
+    return workspace && workspace !== project.projectName
+      ? `${project.projectName} / ${workspace}`
+      : project.projectName;
   };
+  const metaItem = (key: string, icon: string | null, text: string, color?: string) => (
+    <View key={key} style={styles.metaItem}>
+      {icon ? <Icon name={icon} size={12} color={color ?? theme.colors.foregroundMuted} /> : null}
+      <Text style={[styles.metaText, color ? { color, opacity: 1 } : null]} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
 
   const renderCard = ({ item, depth }: InboxRow, working: boolean) => {
     const { agent } = item.entry;
@@ -359,20 +368,25 @@ function InboxSections({
         : agent.pendingPermissions.length > 0
           ? theme.colors.statusWarning
           : theme.colors.foregroundMuted;
-    const branch = item.entry.project.checkout.isGit
-      ? item.entry.project.checkout.currentBranch
-      : null;
+    const { checkout, workspaceName } = item.entry.project;
+    const branch = checkout.isGit ? checkout.currentBranch : null;
     const delegatedFrom = item.host ? delegatedFromServerId(agent, item.host.serverId) : null;
+    const delegatedLabel = delegatedFrom
+      ? (monitor.hosts.find((host) => host.serverId === delegatedFrom)?.label ?? delegatedFrom)
+      : null;
+    // Tertiary facts with native-style icons; each one appears only when it adds information.
     const meta = [
-      settings.showPlacement ? branch : null,
-      item.subagents > 0 && !settings.showSubagents ? `${item.subagents} sub` : null,
-      depth === 0 && item.parentKey ? "subagent" : null,
-      delegatedFrom
-        ? `from ${monitor.hosts.find((host) => host.serverId === delegatedFrom)?.label ?? delegatedFrom}`
+      multiHost && item.host ? metaItem("host", "Server", item.host.label) : null,
+      settings.showPlacement && branch && branch !== workspaceName?.trim()
+        ? metaItem("branch", "GitBranch", branch)
         : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+      item.subagents > 0 && !settings.showSubagents
+        ? metaItem("subs", "Users", `${item.subagents} sub`)
+        : null,
+      depth === 0 && item.parentKey ? metaItem("subagent", "CornerDownRight", "subagent") : null,
+      delegatedLabel ? metaItem("delegated", "ArrowLeftRight", `from ${delegatedLabel}`) : null,
+    ].filter(Boolean);
+    const loud = !working && state !== "finished" && state !== "idle" && state !== "closed";
     const isHovered = hovered === item.key;
     const showActions = alwaysShowActions || isHovered;
     const open = () => openAgent(item);
@@ -393,20 +407,29 @@ function InboxSections({
           style={({ pressed }) => [styles.cardBody, pressed && styles.pressed]}
         >
           <View style={styles.cardTop}>
-            {place(item)}
-            {working ? (
-              <WorkingSince
-                since={workingSince(item)}
-                styles={styles}
-                color={theme.colors.accent}
-              />
-            ) : (
-              <Text style={styles.time}>{relativeAge(activityAt(item), now, true)}</Text>
-            )}
+            <Text style={styles.cardTitle} numberOfLines={2}>
+              {name}
+            </Text>
+            <View style={styles.cardStatus}>
+              {working ? (
+                <WorkingSince
+                  since={workingSince(item)}
+                  styles={styles}
+                  color={theme.colors.accent}
+                />
+              ) : (
+                <Text style={[styles.time, loud ? { color: stateColor } : null]}>
+                  {loud ? `${state} · ` : ""}
+                  {relativeAge(activityAt(item), now, true)}
+                </Text>
+              )}
+            </View>
           </View>
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {name}
-          </Text>
+          {settings.showPlacement ? (
+            <Text style={styles.cardPlace} numberOfLines={1}>
+              {placeText(item)}
+            </Text>
+          ) : null}
         </Pressable>
         <View style={styles.cardBottom}>
           <Pressable
@@ -415,15 +438,7 @@ function InboxSections({
             onPress={open}
             style={({ pressed }) => [styles.cardMetaPress, pressed && styles.pressed]}
           >
-            <Text style={styles.cardMeta} numberOfLines={1}>
-              {!working && state !== "finished" ? (
-                <Text style={{ color: stateColor }}>
-                  {state}
-                  {meta ? " · " : ""}
-                </Text>
-              ) : null}
-              {meta}
-            </Text>
+            <View style={styles.cardMeta}>{meta}</View>
           </Pressable>
           {working ? null : (
             <View style={[styles.actions, !showActions && styles.concealed]}>
@@ -471,13 +486,33 @@ function InboxSections({
           onPress={() => openAgent(item)}
           style={({ pressed }) => [styles.linePress, pressed && styles.pressed]}
         >
-          <Text style={styles.lineTitle} numberOfLines={1}>
+          {/* A leading glyph indents rows past their section header, as in a sidebar. */}
+          <Icon
+            name={
+              section === "snoozed"
+                ? "AlarmClock"
+                : item.triage === "settled"
+                  ? "CircleCheck"
+                  : "Circle"
+            }
+            size={14}
+            color={theme.colors.foregroundMuted}
+          />
+          <Text style={[styles.lineTitle, isHovered && styles.lineTitleHovered]} numberOfLines={1}>
             {name}
             <Text style={styles.lineProject}>
               {"   "}
               {item.entry.project.projectName}
             </Text>
           </Text>
+          {multiHost && item.host ? (
+            <View style={styles.lineHost}>
+              <Icon name="Server" size={11} color={theme.colors.foregroundMuted} />
+              <Text style={styles.lineHostText} numberOfLines={1}>
+                {item.host.label}
+              </Text>
+            </View>
+          ) : null}
           {section === "snoozed" && !Number.isNaN(until) ? (
             <View style={styles.snoozeTime}>
               <Icon name="AlarmClock" size={13} color={theme.colors.accent} />
@@ -510,7 +545,7 @@ function InboxSections({
         onPress={() => toggle(key)}
         style={column ? styles.columnHeader : styles.sectionHeader}
       >
-        <Text style={styles.sectionTitle} numberOfLines={1}>
+        <Text style={column ? styles.columnTitle : styles.sectionTitle} numberOfLines={1}>
           {label}
         </Text>
         <Text style={styles.sectionCount}>{count}</Text>
