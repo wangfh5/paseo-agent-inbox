@@ -109,13 +109,14 @@ function useStyles(theme: Theme, compact: boolean) {
         paddingVertical: 10,
         borderRadius: 10,
         gap: 4,
-        backgroundColor: `${theme.colors.accent}1F`,
+        backgroundColor: theme.colors.surface1,
       },
-      cardWorking: { backgroundColor: `${theme.colors.accent}14` },
+      cardHovered: { backgroundColor: theme.colors.surface2 },
       cardTop: { ...row, gap: 8 },
       cardPlace: { flex: 1, color: muted, fontSize: 12 },
       cardTitle: { color: theme.colors.foreground, fontSize: 15, fontWeight: "600" as const },
-      cardBottom: { ...row, gap: 8, minHeight: 22 },
+      // Tall enough for the action buttons, so revealing them never resizes the card.
+      cardBottom: { ...row, gap: 8, minHeight: 26 },
       cardMeta: { flex: 1, color: muted, fontSize: 12 },
       time: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
       working: { ...row, gap: 4 },
@@ -134,7 +135,7 @@ function useStyles(theme: Theme, compact: boolean) {
       },
       sectionTitle: { flex: 1, color: muted, fontSize: 13, fontWeight: "600" as const },
       sectionCount: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
-      line: { ...row, gap: 10, paddingVertical: 7, paddingRight: 8, borderRadius: 8 },
+      line: { ...row, gap: 10, minHeight: 38, paddingRight: 8, borderRadius: 8 },
       lineTitle: { flex: 1, color: theme.colors.foreground, fontSize: 14 },
       lineHovered: { backgroundColor: theme.colors.surface1 },
       snoozeTime: { ...row, gap: 4 },
@@ -152,6 +153,7 @@ function useStyles(theme: Theme, compact: boolean) {
       },
       avatarText: { fontSize: 9, fontWeight: "700" as const },
       actions: { ...row, gap: 2 },
+      concealed: { opacity: 0 },
       action: {
         width: 26,
         height: 26,
@@ -349,7 +351,8 @@ function InboxSections({
     ]
       .filter(Boolean)
       .join(" · ");
-    const showActions = !working && (alwaysShowActions || hovered === item.key);
+    const isHovered = hovered === item.key;
+    const showActions = alwaysShowActions || isHovered;
     return (
       <View key={item.key} style={{ marginLeft: depth * 14 }}>
         <Pressable
@@ -360,7 +363,7 @@ function InboxSections({
           onHoverOut={() => setHovered((current) => (current === item.key ? null : current))}
           style={({ pressed }) => [
             styles.card,
-            working && styles.cardWorking,
+            isHovered && styles.cardHovered,
             pressed && styles.pressed,
           ]}
         >
@@ -392,14 +395,18 @@ function InboxSections({
               ) : null}
               {meta}
             </Text>
-            {showActions ? (
-              <View style={styles.actions}>
+            {working ? null : (
+              // Always laid out, only revealed on hover, so hovering never shifts the list.
+              <View
+                pointerEvents={showActions ? "auto" : "none"}
+                style={[styles.actions, !showActions && styles.concealed]}
+              >
                 {iconAction(`Settle ${name}`, "Check", () => settle(item))}
                 {iconAction(`Snooze ${name}`, "AlarmClock", () =>
                   setSnoozeMenu((current) => (current === item.key ? null : item.key)),
                 )}
               </View>
-            ) : null}
+            )}
           </View>
           {snoozeMenu === item.key ? (
             <View style={styles.menu}>
@@ -428,7 +435,7 @@ function InboxSections({
     const name = title(item.entry);
     const until = Date.parse(records[item.key]?.until ?? "");
     const isHovered = hovered === item.key;
-    const showAction = item.triage !== null && (alwaysShowActions || isHovered);
+    const showAction = alwaysShowActions || isHovered;
     return (
       <Pressable
         key={item.key}
@@ -448,11 +455,16 @@ function InboxSections({
         <Text style={styles.lineTitle} numberOfLines={1}>
           {name}
         </Text>
-        {showAction
-          ? section === "snoozed"
-            ? iconAction(`Unsnooze ${name}`, "BellRing", () => restore(item))
-            : iconAction(`Undo settle ${name}`, "Undo2", () => restore(item))
-          : null}
+        {item.triage !== null ? (
+          <View
+            pointerEvents={showAction ? "auto" : "none"}
+            style={!showAction ? styles.concealed : undefined}
+          >
+            {section === "snoozed"
+              ? iconAction(`Unsnooze ${name}`, "BellRing", () => restore(item))
+              : iconAction(`Undo settle ${name}`, "Undo2", () => restore(item))}
+          </View>
+        ) : null}
         {section === "snoozed" && !Number.isNaN(until) ? (
           <View style={styles.snoozeTime}>
             <Icon name="AlarmClock" size={13} color={theme.colors.accent} />
