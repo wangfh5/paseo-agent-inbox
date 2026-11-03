@@ -39,8 +39,8 @@ import { useInbox } from "./use-inbox";
 const CLOCK_INTERVAL_MS = 15_000;
 /** Single-column width, so rows never stretch across a wide window. */
 const COLUMN_MAX_WIDTH = 560;
-/** At this screen width and above, sections sit side by side in three columns. */
-const BOARD_MIN_WIDTH = 880;
+/** At this screen width and above, sections sit side by side in two columns. */
+const BOARD_MIN_WIDTH = 720;
 const BOARD_MAX_WIDTH = 1320;
 
 type InboxScreenProps = PluginSurfaceProps & {
@@ -91,10 +91,13 @@ function useStyles(theme: Theme, compact: boolean) {
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
       container: { flex: 1, width: "100%" as const, alignSelf: "center" as const },
       board: { flex: 1, flexDirection: "row" as const, gap: 8, paddingHorizontal: gutter / 2 },
-      boardColumn: { flex: 1, minWidth: 0, maxWidth: 440 },
+      boardColumn: { flex: 1, minWidth: 0, maxWidth: 640 },
+      // Keeps Working at the bottom of its column when Needs attention is collapsed.
+      columnSpacer: { flex: 1 },
       boardContent: { paddingBottom: gutter },
       paneFill: { flex: 1 },
       paneShort: { flexGrow: 0, maxHeight: 240, marginBottom: 8 },
+      paneBottom: { flexGrow: 0, maxHeight: 360 },
       columnHeader: {
         ...row,
         gap: 6,
@@ -669,14 +672,16 @@ function InboxSections({
         {loading ? <Text style={styles.empty}>Loading agents…</Text> : null}
         {columns ? (
           <View style={styles.board}>
+            {/* Left: what needs you on top, Working parked at the bottom. A finished turn
+                moves a card up from Working into Needs attention. */}
             <View style={styles.boardColumn}>
               {pane("attention", attentionCards, "Nothing needs attention")}
+              {isOpen("attention") ? null : <View style={styles.columnSpacer} />}
+              {workingCards.length > 0
+                ? pane("working", workingCards, null, styles.paneBottom)
+                : null}
             </View>
-            <View style={styles.boardColumn}>
-              {pane("working", workingCards, "No agents working")}
-            </View>
-            {/* Snoozed and Settled are peers of the other sections, stacked in one column:
-                Snoozed sized to its few rows, Settled filling the rest. */}
+            {/* Right: Snoozed sized to its few rows, Settled filling the rest. */}
             <View style={styles.boardColumn}>
               {snoozedRows.length > 0 ? pane("snoozed", snoozedRows, null, styles.paneShort) : null}
               {pane("settled", settledRows, "Nothing settled yet")}
