@@ -184,6 +184,18 @@ function useStyles(theme: Theme, compact: boolean) {
       // Rows in Later are done or parked: quieter than headers and cards until hovered.
       lineTitle: { flex: 1, color: muted, fontSize: 14 },
       lineTitleHovered: { color: theme.colors.foreground },
+      lineGlyph: {
+        width: 14,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      lineDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: muted,
+        opacity: 0.5,
+      },
       lineProject: { color: muted, fontSize: 12, opacity: 0.75 },
       lineHost: { ...row, gap: 3 },
       lineHostText: { color: muted, fontSize: 11, opacity: 0.85 },
@@ -485,18 +497,15 @@ function InboxSections({
           onPress={() => openAgent(item)}
           style={({ pressed }) => [styles.linePress, pressed && styles.pressed]}
         >
-          {/* A leading glyph indents rows past their section header, as in a sidebar. */}
-          <Icon
-            name={
-              section === "snoozed"
-                ? "AlarmClock"
-                : item.triage === "settled"
-                  ? "CircleCheck"
-                  : "Circle"
-            }
-            size={14}
-            color={theme.colors.foregroundMuted}
-          />
+          {/* A fixed-width leading glyph indents rows past their section header, as in a
+              sidebar: a check for agents the user settled, else Paseo's quiet idle dot. */}
+          <View style={styles.lineGlyph}>
+            {item.triage === "settled" ? (
+              <Icon name="Check" size={13} color={theme.colors.foregroundMuted} />
+            ) : (
+              <View style={styles.lineDot} />
+            )}
+          </View>
           <Text style={[styles.lineTitle, isHovered && styles.lineTitleHovered]} numberOfLines={1}>
             {name}
             <Text style={styles.lineProject}>
