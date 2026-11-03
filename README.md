@@ -4,6 +4,8 @@ An agent-first inbox for [Paseo](https://github.com/getpaseo/paseo): one compact
 
 Forked from [omercnet's Agent Monitor](https://github.com/omercnet/paseo-plugins/tree/main/agent-monitor) (4.4.1, commit `eaa702b`). MIT, original copyright retained in `LICENSE`.
 
+![Agent inbox on a wide screen: Needs attention on the left, Snoozed and Settled on the right](docs/images/inbox-desktop.png)
+
 ## What it does
 
 - **All hosts, one list.** Every online host is listed and merged. Each agent is identified by `serverId/agentId`, so the same title or id on two hosts never collides. A host that fails or goes offline is reported and skipped; the other hosts keep working.

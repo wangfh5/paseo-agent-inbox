@@ -9,5 +9,13 @@
     }
   },
   "icon": "icon.png",
-  "requirements": { "paseo": ">=0.14.0" }
+  "media": [
+    "docs/images/inbox-desktop.png",
+    "docs/images/snooze-menu.png",
+    "docs/images/custom-snooze.png",
+    "docs/images/inbox-mobile.png"
+  ],
+  "requirements": {
+    "paseo": ">=0.14.0"
+  }
 }

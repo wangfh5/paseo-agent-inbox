@@ -1,5 +1,5 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Icon, Modal } from "@getpaseo/plugin/client/ui";
+import { Modal } from "@getpaseo/plugin/client/ui";
 import { useMemo, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { formatWake } from "./inbox";
@@ -213,7 +213,6 @@ export function CustomSnoozeModal({
     value: string,
     onChange: (value: string) => void,
     placeholder: string,
-    icon: string,
     keyboard: "default" | "numeric" | "numbers-and-punctuation",
   ) => (
     <View style={styles.fieldGroup}>
@@ -230,7 +229,6 @@ export function CustomSnoozeModal({
           autoCorrect={false}
           accessibilityLabel={label}
         />
-        <Icon name={icon} size={16} color={theme.colors.foregroundMuted} />
       </View>
     </View>
   );
@@ -247,12 +245,12 @@ export function CustomSnoozeModal({
         </View>
         {mode === "datetime" ? (
           <View style={styles.fields}>
-            {textField("Date", date, setDate, "2026-11-04", "Calendar", "numbers-and-punctuation")}
-            {textField("Time", time, setTime, "14:30", "Clock", "numbers-and-punctuation")}
+            {textField("Date", date, setDate, "2026-11-04", "numbers-and-punctuation")}
+            {textField("Time", time, setTime, "14:30", "numbers-and-punctuation")}
           </View>
         ) : (
           <View style={styles.fields}>
-            {textField("Amount", amount, setAmount, "2", "Hourglass", "numeric")}
+            {textField("Amount", amount, setAmount, "2", "numeric")}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Unit</Text>
               <View style={styles.units}>
