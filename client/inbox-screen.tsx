@@ -37,6 +37,7 @@ import { useInbox } from "./use-inbox";
 
 const CLOCK_INTERVAL_MS = 15_000;
 const SETTLED_PREVIEW = 10;
+const COLUMN_MAX_WIDTH = 560;
 
 type InboxScreenProps = PluginSurfaceProps & {
   onOpenSettings(): void;
@@ -82,6 +83,13 @@ function useStyles(theme: Theme, compact: boolean) {
     return {
       gutter,
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
+      // A sidebar-width column: wide windows center it instead of stretching rows apart.
+      column: {
+        flex: 1,
+        width: "100%" as const,
+        maxWidth: COLUMN_MAX_WIDTH,
+        alignSelf: "center" as const,
+      },
       header: { ...row, gap: 8, paddingHorizontal: gutter, paddingTop: gutter, paddingBottom: 8 },
       searchBox: {
         ...row,
@@ -503,84 +511,86 @@ function InboxSections({
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.searchBox}>
-          <Icon name="Search" size={15} color={theme.colors.foregroundMuted} />
-          <TextInput
-            style={styles.searchInput}
-            value={needle}
-            onChangeText={setNeedle}
-            placeholder="Search"
-            placeholderTextColor={theme.colors.foregroundMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            accessibilityLabel="Search agents by title, host, project or path"
-          />
+      <View style={styles.column}>
+        <View style={styles.header}>
+          <View style={styles.searchBox}>
+            <Icon name="Search" size={15} color={theme.colors.foregroundMuted} />
+            <TextInput
+              style={styles.searchInput}
+              value={needle}
+              onChangeText={setNeedle}
+              placeholder="Search"
+              placeholderTextColor={theme.colors.foregroundMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Search agents by title, host, project or path"
+            />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Refresh agents"
+            onPress={monitor.refetchAll}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          >
+            <Icon
+              name="RefreshCw"
+              size={15}
+              color={monitor.isFetching ? theme.colors.accent : theme.colors.foregroundMuted}
+            />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open inbox settings"
+            onPress={onOpenSettings}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          >
+            <Icon name="Settings" size={15} color={theme.colors.foregroundMuted} />
+          </Pressable>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Refresh agents"
-          onPress={monitor.refetchAll}
-          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
-        >
-          <Icon
-            name="RefreshCw"
-            size={15}
-            color={monitor.isFetching ? theme.colors.accent : theme.colors.foregroundMuted}
-          />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open inbox settings"
-          onPress={onOpenSettings}
-          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
-        >
-          <Icon name="Settings" size={15} color={theme.colors.foregroundMuted} />
-        </Pressable>
+        {monitor.failedHosts.length > 0 ? (
+          <Text style={styles.error}>{monitor.failedHosts.join(", ")} unreachable</Text>
+        ) : null}
+        {triage.problem ? <Text style={styles.error}>{triage.problem}</Text> : null}
+        <ScrollView contentContainerStyle={styles.content}>
+          {loading ? <Text style={styles.empty}>Loading agents…</Text> : null}
+          {sections.attention.map((row) => renderCard(row, false))}
+          <View style={styles.spacer} />
+          {sections.working.length > 0 ? (
+            <>
+              {header("working", sections.working.length)}
+              {open.working ? sections.working.map((row) => renderCard(row, true)) : null}
+            </>
+          ) : null}
+          {sections.snoozed.length > 0 ? (
+            <>
+              {header("snoozed", sections.snoozed.length)}
+              {open.snoozed ? sections.snoozed.map((row) => renderLine(row, "snoozed")) : null}
+            </>
+          ) : null}
+          {sections.settled.length > 0 ? (
+            <>
+              {header("settled", sections.settled.length)}
+              {open.settled ? settledRows.map((row) => renderLine(row, "settled")) : null}
+              {open.settled && (hiddenSettled > 0 || showAllSettled) ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setShowAllSettled((current) => !current)}
+                  style={styles.more}
+                >
+                  <Icon
+                    name={showAllSettled ? "ChevronUp" : "ChevronDown"}
+                    size={14}
+                    color={theme.colors.foregroundMuted}
+                  />
+                  <Text style={styles.moreText}>
+                    {showAllSettled ? "Show less" : `Show ${hiddenSettled} more`}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </>
+          ) : null}
+        </ScrollView>
       </View>
-      {monitor.failedHosts.length > 0 ? (
-        <Text style={styles.error}>{monitor.failedHosts.join(", ")} unreachable</Text>
-      ) : null}
-      {triage.problem ? <Text style={styles.error}>{triage.problem}</Text> : null}
-      <ScrollView contentContainerStyle={styles.content}>
-        {loading ? <Text style={styles.empty}>Loading agents…</Text> : null}
-        {sections.attention.map((row) => renderCard(row, false))}
-        <View style={styles.spacer} />
-        {sections.working.length > 0 ? (
-          <>
-            {header("working", sections.working.length)}
-            {open.working ? sections.working.map((row) => renderCard(row, true)) : null}
-          </>
-        ) : null}
-        {sections.snoozed.length > 0 ? (
-          <>
-            {header("snoozed", sections.snoozed.length)}
-            {open.snoozed ? sections.snoozed.map((row) => renderLine(row, "snoozed")) : null}
-          </>
-        ) : null}
-        {sections.settled.length > 0 ? (
-          <>
-            {header("settled", sections.settled.length)}
-            {open.settled ? settledRows.map((row) => renderLine(row, "settled")) : null}
-            {open.settled && (hiddenSettled > 0 || showAllSettled) ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setShowAllSettled((current) => !current)}
-                style={styles.more}
-              >
-                <Icon
-                  name={showAllSettled ? "ChevronUp" : "ChevronDown"}
-                  size={14}
-                  color={theme.colors.foregroundMuted}
-                />
-                <Text style={styles.moreText}>
-                  {showAllSettled ? "Show less" : `Show ${hiddenSettled} more`}
-                </Text>
-              </Pressable>
-            ) : null}
-          </>
-        ) : null}
-      </ScrollView>
     </View>
   );
 }
