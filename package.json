@@ -1,0 +1,65 @@
+{
+  "name": "@omercnet/paseo-agent-monitor",
+  "version": "4.4.1",
+  "type": "module",
+  "description": "A Paseo plugin that provides a host-wide agent triage roster.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omercnet/paseo-plugins.git",
+    "directory": "agent-monitor"
+  },
+  "homepage": "https://github.com/omercnet/paseo-plugins/tree/main/agent-monitor#readme",
+  "bugs": {
+    "url": "https://github.com/omercnet/paseo-plugins/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "node": ">=24"
+  },
+  "author": "Omer Cohen",
+  "keywords": [
+    "paseo",
+    "paseo-plugin",
+    "agent-monitor",
+    "coding-agents"
+  ],
+  "files": [
+    "index.client.tsx",
+    "index.server.ts",
+    "client",
+    "shared",
+    "paseo-plugin.json",
+    "icon.png",
+    "README.md",
+    "LICENSE",
+    "OVERVIEW.md"
+  ],
+  "scripts": {
+    "check": "biome check .",
+    "check:write": "biome check --write .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.thresholds.lines=90 --coverage.thresholds.functions=85",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@getpaseo/cli": "catalog:",
+    "@getpaseo/client": "catalog:",
+    "@getpaseo/plugin": "catalog:",
+    "@getpaseo/protocol": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "esbuild": "catalog:",
+    "react": "catalog:",
+    "react-native": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}
