@@ -3,7 +3,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { requestAgentOpen } from "./focus-request";
-import { activityAt, compareItems, type InboxItem, stateLabel } from "./inbox";
+import { activityAt, type InboxItem, stateLabel } from "./inbox";
 import { age, hostColor, title } from "./monitor";
 import { useInbox } from "./use-inbox";
 
@@ -73,7 +73,7 @@ function AttentionPopover({ theme, layout, openScreen, close }: PluginPopoverPro
     () =>
       (items ?? [])
         .filter((item) => item.needsAttention)
-        .sort((l, r) => compareItems(l, r, "updated")),
+        .sort((l, r) => activityAt(r) - activityAt(l)),
     [items],
   );
   const shown = queue.slice(0, POPOVER_LIMIT);

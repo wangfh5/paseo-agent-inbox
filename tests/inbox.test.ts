@@ -1,13 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
   attentionSummary,
-  countViews,
+  buildSections,
   deriveInbox,
-  filterItems,
   formatWake,
   type InboxItem,
-  onHost,
   orderRows,
+  projectInitials,
+  relativeAge,
+  type Section,
 } from "../client/inbox";
 import { settleRecord, snoozeRecord } from "../client/triage";
 import { buildObservation } from "../client/use-inbox";
@@ -26,13 +27,30 @@ function keys(items: readonly InboxItem[]): string[] {
   return items.map((item) => item.key);
 }
 
+/** Agent ids per section, in display order. */
+function layout(
+  items: readonly InboxItem[],
+  records: Parameters<typeof buildSections>[1] = {},
+  needle = "",
+): Record<Section, string[]> {
+  const sections = buildSections(items, records, needle);
+  const ids = (section: Section) => sections[section].map((row) => row.item.entry.agent.id);
+  return {
+    attention: ids("attention"),
+    working: ids("working"),
+    snoozed: ids("snoozed"),
+    settled: ids("settled"),
+  };
+}
+
+const byTitle = (left: InboxItem, right: InboxItem) =>
+  (left.entry.agent.title ?? "").localeCompare(right.entry.agent.title ?? "");
+
 describe("subagents are hidden by default", () => {
   test("only the top-level agent shows, and subagent attention is not counted", () => {
     const items = deriveInbox([A, B, C, D], {}, { showSubagents: false, now: NOW });
     expect(keys(items)).toEqual(["srv-alpha/A", "srv-alpha/D"]);
-    const counts = countViews(items);
-    expect(counts.attention).toBe(1);
-    expect(counts.all).toBe(2);
+    expect(layout(items)).toEqual({ attention: ["D"], working: ["A"], snoozed: [], settled: [] });
     expect(attentionSummary({ items, truncated: false, failed: false })).toEqual({
       count: 1,
       lowerBound: false,
@@ -92,8 +110,8 @@ describe("subagents are hidden by default", () => {
   test("Show subagents lists children under their parent, nested by generation", () => {
     const grandchild = entry({ id: "G", title: "Grandchild", ...childOf("B") });
     const items = deriveInbox([A, B, C, D, grandchild], {}, { showSubagents: true, now: NOW });
-    expect(countViews(items).attention).toBe(3);
-    const rows = orderRows(items, "title");
+    expect(layout(items).attention).toHaveLength(3);
+    const rows = orderRows(items, byTitle);
     expect(rows.map((row) => [row.item.entry.agent.id, row.depth])).toEqual([
       ["A", 0],
       ["B", 1],
@@ -103,12 +121,12 @@ describe("subagents are hidden by default", () => {
     ]);
   });
 
-  test("with subagents shown, a child whose parent is filtered out becomes a root row", () => {
+  test("with subagents shown, a child in another section than its parent is a root row there", () => {
     const items = deriveInbox([A, B, D], {}, { showSubagents: true, now: NOW });
-    const rows = orderRows(filterItems(items, "attention", ""), "title");
-    expect(rows.map((row) => [row.item.entry.agent.id, row.depth])).toEqual([
-      ["D", 0],
+    const sections = buildSections(items, {}, "");
+    expect(sections.attention.map((row) => [row.item.entry.agent.id, row.depth])).toEqual([
       ["B", 0],
+      ["D", 0],
     ]);
   });
 });
@@ -137,10 +155,14 @@ describe("multiple hosts", () => {
     expect(deriveInbox([onAlpha, onAlpha], {}, { showSubagents: false, now: NOW })).toHaveLength(1);
   });
 
-  test("the host filter scopes items; All hosts keeps everything", () => {
+  test("searching a host label narrows to that host", () => {
     const items = deriveInbox([onAlpha, onBeta], {}, { showSubagents: false, now: NOW });
-    expect(keys(onHost(items, "srv-beta"))).toEqual(["srv-beta/same-id"]);
-    expect(onHost(items, null)).toHaveLength(2);
+    expect(layout(items, {}, "beta")).toEqual({
+      attention: [],
+      working: ["same-id"],
+      snoozed: [],
+      settled: [],
+    });
   });
 
   test("a failed host makes the badge a lower bound instead of a wrong exact count", () => {
@@ -165,7 +187,7 @@ describe("settle and snooze in the derived inbox", () => {
     const items = deriveInbox([A, D], records, { showSubagents: false, now: NOW + HOUR });
     const solo = items.find((item) => item.key === "srv-alpha/D");
     expect(solo).toMatchObject({ base: "attention", triage: "settled", needsAttention: false });
-    expect(countViews(items)).toMatchObject({ attention: 0, settled: 1, all: 2, running: 1 });
+    expect(layout(items)).toEqual({ attention: [], working: ["A"], snoozed: [], settled: ["D"] });
   });
 
   test("a new turn on a settled agent returns it to the queue", () => {
@@ -178,9 +200,9 @@ describe("settle and snooze in the derived inbox", () => {
   test("snooze hides until it expires, then the agent is back without any new event", () => {
     const records = { "srv-alpha/D": snoozeRecord(D.agent, NOW, NOW + HOUR) };
     const during = deriveInbox([D], records, { showSubagents: false, now: NOW + HOUR - 1 });
-    expect(countViews(during)).toMatchObject({ attention: 0, snoozed: 1 });
+    expect(layout(during, records)).toMatchObject({ attention: [], snoozed: ["D"] });
     const after = deriveInbox([D], records, { showSubagents: false, now: NOW + HOUR });
-    expect(countViews(after)).toMatchObject({ attention: 1, snoozed: 0 });
+    expect(layout(after, records)).toMatchObject({ attention: ["D"], snoozed: [] });
   });
 
   test("a new permission request wakes a snooze early", () => {
@@ -197,14 +219,18 @@ describe("settle and snooze in the derived inbox", () => {
   test("triage on a subagent stays out of every count while subagents are hidden", () => {
     const records = { "srv-alpha/B": settleRecord(B.agent, NOW) };
     const items = deriveInbox([A, B, C, D], records, { showSubagents: false, now: NOW });
-    expect(countViews(items)).toMatchObject({ attention: 1, settled: 0, all: 2 });
+    expect(layout(items)).toEqual({ attention: ["D"], working: ["A"], snoozed: [], settled: [] });
   });
 
   test("search filters rows but never changes what counts as attention", () => {
     const items = deriveInbox([A, D], {}, { showSubagents: false, now: NOW });
-    expect(keys(filterItems(items, "all", "solo"))).toEqual(["srv-alpha/D"]);
-    expect(keys(filterItems(items, "all", "alpha"))).toHaveLength(2);
-    expect(countViews(items).attention).toBe(1);
+    expect(layout(items, {}, "solo")).toEqual({
+      attention: ["D"],
+      working: [],
+      snoozed: [],
+      settled: [],
+    });
+    expect(attentionSummary({ items, truncated: false, failed: false })?.count).toBe(1);
   });
 
   test("archived agents are excluded even if a host lists them", () => {
@@ -217,23 +243,55 @@ describe("settle and snooze in the derived inbox", () => {
   });
 });
 
-describe("ordering", () => {
-  test("triage sort: attention first (newest first), then running, then triaged, then idle", () => {
+describe("sections", () => {
+  test("every agent sits in exactly one section; idle and settled share Settled", () => {
     const idle = entry({ id: "I", title: "Idle", updatedAt: "2026-11-03T09:59:00Z" });
     const older = entry({ id: "O", title: "Older", ...finished("2026-11-03T07:00:00Z") });
     const settled = entry({ id: "S", title: "Settled", ...finished("2026-11-03T09:30:00Z") });
-    const records = { "srv-alpha/S": settleRecord(settled.agent, NOW) };
-    const items = deriveInbox([idle, older, settled, A, D], records, {
+    const snoozedLate = entry({ id: "Z2", ...finished("2026-11-03T09:00:00Z") });
+    const snoozedSoon = entry({ id: "Z1", ...finished("2026-11-03T09:00:00Z") });
+    const records = {
+      "srv-alpha/S": settleRecord(settled.agent, NOW),
+      "srv-alpha/Z1": snoozeRecord(snoozedSoon.agent, NOW, NOW + HOUR),
+      "srv-alpha/Z2": snoozeRecord(snoozedLate.agent, NOW, NOW + 4 * HOUR),
+    };
+    const items = deriveInbox([idle, older, settled, A, D, snoozedLate, snoozedSoon], records, {
       showSubagents: false,
       now: NOW,
     });
-    expect(orderRows(items, "triage").map((row) => row.item.entry.agent.id)).toEqual([
-      "D",
-      "O",
-      "A",
-      "S",
-      "I",
+    expect(layout(items, records)).toEqual({
+      attention: ["D", "O"],
+      working: ["A"],
+      snoozed: ["Z1", "Z2"],
+      settled: ["I", "S"],
+    });
+  });
+
+  test("a running agent with a stale finished flag is Working, then rises to attention when done", () => {
+    const running = entry({ id: "R", status: "running", ...finished("2026-11-03T08:00:00Z") });
+    expect(layout(deriveInbox([running], {}, { showSubagents: false, now: NOW })).working).toEqual([
+      "R",
     ]);
+    const done = entry({ id: "R", ...finished("2026-11-03T09:55:00Z") });
+    expect(layout(deriveInbox([done], {}, { showSubagents: false, now: NOW })).attention).toEqual([
+      "R",
+    ]);
+  });
+});
+
+describe("row text helpers", () => {
+  test("project initials", () => {
+    expect(projectInitials("agent-settings")).toBe("AS");
+    expect(projectInitials("paseo")).toBe("PA");
+    expect(projectInitials("wangfh5/agent-settings")).toBe("WA");
+    expect(projectInitials("优化 FI Clash")).toBe("优");
+    expect(projectInitials("")).toBe("?");
+  });
+
+  test("relative age reads now under a minute when asked", () => {
+    expect(relativeAge(NOW - 30_000, NOW, true)).toBe("now");
+    expect(relativeAge(NOW - 30_000, NOW, false)).toBe("30s");
+    expect(relativeAge(NOW - 2 * HOUR, NOW, true)).toBe("2h");
   });
 });
 

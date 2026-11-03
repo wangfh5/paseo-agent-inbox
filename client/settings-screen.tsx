@@ -3,22 +3,11 @@ import {
   SettingsAction,
   SettingsCard,
   SettingsSection,
-  SettingsSelect,
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
-import {
-  type AgentSort,
-  DEFAULT_VIEW_OPTIONS,
-  type DefaultView,
-  type InboxSettings,
-  inboxSettings,
-  SORT_OPTIONS,
-} from "../shared/inbox-settings";
+import { type InboxSettings, inboxSettings } from "../shared/inbox-settings";
 import { triageSettings } from "../shared/triage-settings";
-
-const sortOptions = SORT_OPTIONS.map(({ id, label }) => ({ value: id, label }));
-const viewOptions = DEFAULT_VIEW_OPTIONS.map(({ id, label }) => ({ value: id, label }));
 
 export function InboxSettingsScreen({ theme }: PluginSurfaceProps) {
   const prefs = useSettings(inboxSettings);
@@ -63,20 +52,6 @@ export function InboxSettingsScreen({ theme }: PluginSurfaceProps) {
             value={prefs.values.showPlacement}
             disabled={prefs.saving}
             onValueChange={(showPlacement) => save({ showPlacement })}
-          />
-          <SettingsSelect
-            label="Sort"
-            value={prefs.values.agentSort}
-            options={sortOptions}
-            disabled={prefs.saving}
-            onValueChange={(agentSort) => save({ agentSort: agentSort as AgentSort })}
-          />
-          <SettingsSelect
-            label="Opens on"
-            value={prefs.values.defaultView}
-            options={viewOptions}
-            disabled={prefs.saving}
-            onValueChange={(defaultView) => save({ defaultView: defaultView as DefaultView })}
           />
         </SettingsCard>
         {prefs.saveError ? <Text style={danger}>{prefs.saveError}</Text> : null}

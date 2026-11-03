@@ -1,13 +1,12 @@
-import type { AgentSort } from "../shared/inbox-settings";
 import type { TriageRecords } from "../shared/triage-settings";
 import {
   type AgentEntry,
+  age,
   agentKey,
   type HostScope,
   hostOf,
   matches,
   parentAddress,
-  title,
 } from "./monitor";
 import { type BaseState, baseStateOf, effectiveTriage, type TriageState } from "./triage";
 
@@ -27,18 +26,21 @@ export type InboxItem = {
   subagents: number;
 };
 
-export type InboxView = "attention" | "running" | "idle" | "settled" | "snoozed" | "all";
+/**
+ * Where an agent sits in the inbox. Sections are positions, not filters: every agent is in
+ * exactly one, and moves between them as its state changes. A finished turn lifts an agent from
+ * Working to Needs attention; Settle drops it to Settled, Snooze to Snoozed.
+ */
+export type Section = "attention" | "working" | "snoozed" | "settled";
 
-export const VIEWS: readonly { id: InboxView; label: string }[] = [
-  { id: "attention", label: "Needs attention" },
-  { id: "running", label: "Running" },
-  { id: "idle", label: "Idle" },
-  { id: "all", label: "All" },
-  { id: "settled", label: "Settled" },
-  { id: "snoozed", label: "Snoozed" },
-];
+export const SECTIONS: readonly Section[] = ["attention", "working", "snoozed", "settled"];
 
-export type InboxCounts = Record<InboxView, number>;
+export const SECTION_TITLES: Record<Section, string> = {
+  attention: "Needs attention",
+  working: "Working",
+  snoozed: "Snoozed",
+  settled: "Settled",
+};
 
 export function isSubagent(entry: AgentEntry): boolean {
   return parentAddress(entry.agent, hostOf(entry)?.serverId ?? "") !== null;
@@ -91,42 +93,15 @@ export function deriveInbox(
   return items;
 }
 
-export function inView(item: InboxItem, view: InboxView): boolean {
-  switch (view) {
-    case "attention":
-      return item.needsAttention;
-    case "running":
-      return item.base === "running";
-    case "idle":
-      return item.base === "idle";
-    case "settled":
-      return item.triage === "settled";
-    case "snoozed":
-      return item.triage === "snoozed";
-    case "all":
-      return true;
-  }
-}
-
-export function countViews(items: readonly InboxItem[]): InboxCounts {
-  const counts: InboxCounts = { attention: 0, running: 0, idle: 0, settled: 0, snoozed: 0, all: 0 };
-  for (const item of items) {
-    for (const { id } of VIEWS) if (inView(item, id)) counts[id] += 1;
-  }
-  return counts;
-}
-
-export function onHost(items: readonly InboxItem[], serverId: string | null): InboxItem[] {
-  return serverId === null ? [...items] : items.filter((item) => item.host?.serverId === serverId);
-}
-
-export function filterItems(
-  items: readonly InboxItem[],
-  view: InboxView,
-  needle: string,
-): InboxItem[] {
-  const search = needle.trim().toLowerCase();
-  return items.filter((item) => inView(item, view) && matches(item.entry, search));
+/**
+ * Settled holds both agents the user settled and agents that simply have nothing pending (idle
+ * or closed and read): either way there is nothing to do.
+ */
+export function sectionOf(item: InboxItem): Section {
+  if (item.needsAttention) return "attention";
+  if (item.base === "running") return "working";
+  if (item.triage === "snoozed") return "snoozed";
+  return "settled";
 }
 
 /** When the agent began waiting (for attention) or last changed (otherwise). */
@@ -139,24 +114,6 @@ export function activityAt(item: InboxItem): number {
   return Number.isNaN(attentionAt) ? Date.parse(agent.updatedAt) : attentionAt;
 }
 
-const TRIAGE_ORDER: Record<string, number> = { attention: 0, running: 1, triaged: 2, idle: 3 };
-
-function triageRank(item: InboxItem): number {
-  if (item.needsAttention) return TRIAGE_ORDER.attention;
-  if (item.base === "running") return TRIAGE_ORDER.running;
-  if (item.triage !== null) return TRIAGE_ORDER.triaged;
-  return TRIAGE_ORDER.idle;
-}
-
-export function compareItems(left: InboxItem, right: InboxItem, sort: AgentSort): number {
-  if (sort === "title") return title(left.entry).localeCompare(title(right.entry));
-  if (sort === "triage") {
-    const byRank = triageRank(left) - triageRank(right);
-    if (byRank !== 0) return byRank;
-  }
-  return activityAt(right) - activityAt(left);
-}
-
 export type InboxRow = { item: InboxItem; depth: number };
 
 /**
@@ -164,7 +121,10 @@ export type InboxRow = { item: InboxItem; depth: number };
  * generation; a child whose parent is not in `items` (filtered out, on an offline host, or
  * unlisted) is a root row of its own so it never disappears.
  */
-export function orderRows(items: readonly InboxItem[], sort: AgentSort): InboxRow[] {
+export function orderRows(
+  items: readonly InboxItem[],
+  byOrder: (left: InboxItem, right: InboxItem) => number,
+): InboxRow[] {
   const keys = new Set(items.map((item) => item.key));
   const children = new Map<string, InboxItem[]>();
   const roots: InboxItem[] = [];
@@ -177,7 +137,6 @@ export function orderRows(items: readonly InboxItem[], sort: AgentSort): InboxRo
       roots.push(item);
     }
   }
-  const byOrder = (left: InboxItem, right: InboxItem) => compareItems(left, right, sort);
   const rows: InboxRow[] = [];
   const placed = new Set<string>();
   const visit = (item: InboxItem, depth: number) => {
@@ -190,6 +149,38 @@ export function orderRows(items: readonly InboxItem[], sort: AgentSort): InboxRo
   // A parent cycle has no root; list what is left flat rather than dropping it.
   for (const item of [...items].sort(byOrder)) visit(item, 0);
   return rows;
+}
+
+export type InboxSections = Record<Section, InboxRow[]>;
+
+const newestFirst = (left: InboxItem, right: InboxItem) => activityAt(right) - activityAt(left);
+
+/**
+ * The search-filtered items split into sections. Attention, Working and Settled list the most
+ * recent activity first; Snoozed lists the earliest wake first.
+ */
+export function buildSections(
+  items: readonly InboxItem[],
+  records: TriageRecords,
+  needle: string,
+): InboxSections {
+  const search = needle.trim().toLowerCase();
+  const grouped: Record<Section, InboxItem[]> = {
+    attention: [],
+    working: [],
+    snoozed: [],
+    settled: [],
+  };
+  for (const item of items) {
+    if (matches(item.entry, search)) grouped[sectionOf(item)].push(item);
+  }
+  const wake = (item: InboxItem) => Date.parse(records[item.key]?.until ?? "") || 0;
+  return {
+    attention: orderRows(grouped.attention, newestFirst),
+    working: orderRows(grouped.working, newestFirst),
+    snoozed: orderRows(grouped.snoozed, (left, right) => wake(left) - wake(right)),
+    settled: orderRows(grouped.settled, newestFirst),
+  };
 }
 
 export function stateLabel(item: InboxItem): string {
@@ -232,4 +223,26 @@ export function formatWake(until: number, now: number): string {
   if (sameDay(date, today)) return time;
   if (sameDay(date, tomorrow)) return `tomorrow ${time}`;
   return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
+}
+
+/**
+ * The time from `from` to `to` as "12s", "5m", "3h" or "2d". With `nowBelowMinute`, anything
+ * under a minute reads "now".
+ */
+export function relativeAge(from: number, to: number, nowBelowMinute: boolean): string {
+  if (Number.isNaN(from) || Number.isNaN(to)) return "";
+  if (nowBelowMinute && to - from < 60_000) return "now";
+  return age(from, to);
+}
+
+/** Two-letter project badge: "agent-settings" → "AS", "paseo" → "PA", "优化项目" → "优". */
+export function projectInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "?";
+  const first = trimmed.codePointAt(0) ?? 0;
+  if (first > 0x2e7f) return String.fromCodePoint(first);
+  const words = trimmed.split(/[\s\-_./·]+/).filter((word) => /^[A-Za-z0-9]/.test(word));
+  if (words.length >= 2) return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toUpperCase();
+  const word = words[0] ?? trimmed;
+  return word.slice(0, 2).toUpperCase();
 }
