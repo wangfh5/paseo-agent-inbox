@@ -146,6 +146,8 @@ function useStyles(theme: Theme, compact: boolean) {
         backgroundColor: theme.colors.surface1,
       },
       cardHovered: { backgroundColor: theme.colors.surface2 },
+      cardBody: { gap: 4 },
+      cardMetaPress: { flex: 1, minHeight: 26, justifyContent: "center" as const },
       cardTop: { ...row, gap: 8 },
       cardPlace: { flex: 1, fontSize: 12 },
       cardTitle: { color: theme.colors.foreground, fontSize: 15, fontWeight: "600" as const },
@@ -171,7 +173,8 @@ function useStyles(theme: Theme, compact: boolean) {
       },
       sectionTitle: { flex: 1, color: muted, fontSize: 13, fontWeight: "600" as const },
       sectionCount: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
-      line: { ...row, gap: 10, minHeight: 38, paddingRight: inset, borderRadius: 8 },
+      line: { ...row, gap: 6, minHeight: 38, paddingRight: inset, borderRadius: 8 },
+      linePress: { ...row, flex: 1, gap: 10, alignSelf: "stretch" as const },
       lineInset: inset,
       lineTitle: { flex: 1, color: theme.colors.foreground, fontSize: 14 },
       lineProject: { color: muted, fontSize: 12 },
@@ -386,19 +389,22 @@ function InboxSections({
       .join(" · ");
     const isHovered = hovered === item.key;
     const showActions = alwaysShowActions || isHovered;
+    const open = () => openAgent(item);
     return (
-      <View key={item.key} style={{ marginLeft: depth * 14 }}>
+      // Hover is tracked on the whole card with pointerenter/leave, which do not fire when the
+      // pointer moves onto a child. The action buttons are siblings of the pressable areas, not
+      // nested in them, and stay clickable even while visually concealed.
+      <View
+        key={item.key}
+        onPointerEnter={() => setHovered(item.key)}
+        onPointerLeave={() => setHovered((current) => (current === item.key ? null : current))}
+        style={[styles.card, isHovered && styles.cardHovered, { marginLeft: depth * 14 }]}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Open agent ${name}`}
-          onPress={() => openAgent(item)}
-          onHoverIn={() => setHovered(item.key)}
-          onHoverOut={() => setHovered((current) => (current === item.key ? null : current))}
-          style={({ pressed }) => [
-            styles.card,
-            isHovered && styles.cardHovered,
-            pressed && styles.pressed,
-          ]}
+          onPress={open}
+          style={({ pressed }) => [styles.cardBody, pressed && styles.pressed]}
         >
           <View style={styles.cardTop}>
             {place(item)}
@@ -415,7 +421,14 @@ function InboxSections({
           <Text style={styles.cardTitle} numberOfLines={2}>
             {name}
           </Text>
-          <View style={styles.cardBottom}>
+        </Pressable>
+        <View style={styles.cardBottom}>
+          <Pressable
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            onPress={open}
+            style={({ pressed }) => [styles.cardMetaPress, pressed && styles.pressed]}
+          >
             <Text style={styles.cardMeta} numberOfLines={1}>
               {!working && state !== "finished" ? (
                 <Text style={{ color: stateColor }}>
@@ -425,38 +438,34 @@ function InboxSections({
               ) : null}
               {meta}
             </Text>
-            {working ? null : (
-              // Always laid out, only revealed on hover, so hovering never shifts the list.
-              <View
-                pointerEvents={showActions ? "auto" : "none"}
-                style={[styles.actions, !showActions && styles.concealed]}
-              >
-                {iconAction(`Settle ${name}`, "Check", () => settle(item))}
-                {iconAction(`Snooze ${name}`, "AlarmClock", () =>
-                  setSnoozeMenu((current) => (current === item.key ? null : item.key)),
-                )}
-              </View>
-            )}
-          </View>
-          {snoozeMenu === item.key ? (
-            <View style={styles.menu}>
-              {SNOOZE_PRESETS.map((preset) => (
-                <Pressable
-                  key={preset.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Snooze ${name} for ${preset.label}`}
-                  onPress={() => snooze(item, preset.id)}
-                  style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.menuText}>
-                    {preset.label} · {formatWake(snoozeUntil(preset.id, now), now)}
-                  </Text>
-                </Pressable>
-              ))}
-              {iconAction("Cancel snooze", "X", () => setSnoozeMenu(null))}
+          </Pressable>
+          {working ? null : (
+            <View style={[styles.actions, !showActions && styles.concealed]}>
+              {iconAction(`Settle ${name}`, "Check", () => settle(item))}
+              {iconAction(`Snooze ${name}`, "AlarmClock", () =>
+                setSnoozeMenu((current) => (current === item.key ? null : item.key)),
+              )}
             </View>
-          ) : null}
-        </Pressable>
+          )}
+        </View>
+        {snoozeMenu === item.key ? (
+          <View style={styles.menu}>
+            {SNOOZE_PRESETS.map((preset) => (
+              <Pressable
+                key={preset.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Snooze ${name} for ${preset.label}`}
+                onPress={() => snooze(item, preset.id)}
+                style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.menuText}>
+                  {preset.label} · {formatWake(snoozeUntil(preset.id, now), now)}
+                </Text>
+              </Pressable>
+            ))}
+            {iconAction("Cancel snooze", "X", () => setSnoozeMenu(null))}
+          </View>
+        ) : null}
       </View>
     );
   };
@@ -467,46 +476,46 @@ function InboxSections({
     const isHovered = hovered === item.key;
     const showAction = alwaysShowActions || isHovered;
     return (
-      <Pressable
+      <View
         key={item.key}
-        accessibilityRole="button"
-        accessibilityLabel={`Open agent ${name}`}
-        onPress={() => openAgent(item)}
-        onHoverIn={() => setHovered(item.key)}
-        onHoverOut={() => setHovered((current) => (current === item.key ? null : current))}
-        style={({ pressed }) => [
+        onPointerEnter={() => setHovered(item.key)}
+        onPointerLeave={() => setHovered((current) => (current === item.key ? null : current))}
+        style={[
           styles.line,
           { paddingLeft: styles.lineInset + depth * 14 },
           isHovered && styles.lineHovered,
-          pressed && styles.pressed,
         ]}
       >
-        <Text style={styles.lineTitle} numberOfLines={1}>
-          {name}
-          <Text style={styles.lineProject}>
-            {"   "}
-            {item.entry.project.projectName}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open agent ${name}`}
+          onPress={() => openAgent(item)}
+          style={({ pressed }) => [styles.linePress, pressed && styles.pressed]}
+        >
+          <Text style={styles.lineTitle} numberOfLines={1}>
+            {name}
+            <Text style={styles.lineProject}>
+              {"   "}
+              {item.entry.project.projectName}
+            </Text>
           </Text>
-        </Text>
+          {section === "snoozed" && !Number.isNaN(until) ? (
+            <View style={styles.snoozeTime}>
+              <Icon name="AlarmClock" size={13} color={theme.colors.accent} />
+              <Text style={styles.snoozeText}>{relativeAge(now, until, false)}</Text>
+            </View>
+          ) : (
+            <Text style={styles.time}>{relativeAge(activityAt(item), now, true)}</Text>
+          )}
+        </Pressable>
         {item.triage !== null ? (
-          <View
-            pointerEvents={showAction ? "auto" : "none"}
-            style={!showAction ? styles.concealed : undefined}
-          >
+          <View style={!showAction ? styles.concealed : undefined}>
             {section === "snoozed"
               ? iconAction(`Unsnooze ${name}`, "BellRing", () => restore(item))
               : iconAction(`Undo settle ${name}`, "Undo2", () => restore(item))}
           </View>
         ) : null}
-        {section === "snoozed" && !Number.isNaN(until) ? (
-          <View style={styles.snoozeTime}>
-            <Icon name="AlarmClock" size={13} color={theme.colors.accent} />
-            <Text style={styles.snoozeText}>{relativeAge(now, until, false)}</Text>
-          </View>
-        ) : (
-          <Text style={styles.time}>{relativeAge(activityAt(item), now, true)}</Text>
-        )}
-      </Pressable>
+      </View>
     );
   };
 
