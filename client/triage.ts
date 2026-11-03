@@ -102,22 +102,112 @@ export function snoozeRecord(agent: AttentionSource, now: number, until: number)
   };
 }
 
-export type SnoozePreset = "1h" | "4h" | "tomorrow";
+export type SnoozePreset = "1h" | "3h" | "evening" | "tomorrow" | "nextWeek";
 
-export const SNOOZE_PRESETS: readonly { id: SnoozePreset; label: string }[] = [
-  { id: "1h", label: "1 hour" },
-  { id: "4h", label: "4 hours" },
-  { id: "tomorrow", label: "Tomorrow 9:00" },
-];
+const HOUR_MS = 60 * 60 * 1000;
+const EVENING_HOUR = 18;
+const MORNING_HOUR = 9;
 
-/** Absolute wake time for a preset. "Tomorrow" is 09:00 on the next calendar day, local time. */
-export function snoozeUntil(preset: SnoozePreset, now: number): number {
-  if (preset === "1h") return now + 60 * 60 * 1000;
-  if (preset === "4h") return now + 4 * 60 * 60 * 1000;
+function atLocal(now: number, addDays: number, hour: number): number {
   const date = new Date(now);
-  date.setDate(date.getDate() + 1);
-  date.setHours(9, 0, 0, 0);
+  date.setDate(date.getDate() + addDays);
+  date.setHours(hour, 0, 0, 0);
   return date.getTime();
+}
+
+/**
+ * Absolute wake time for a preset, in the client's local time: "evening" is 18:00 today,
+ * "tomorrow" 09:00 on the next day, "nextWeek" 09:00 on the coming Monday (a week out on Mondays).
+ */
+export function snoozeUntil(preset: SnoozePreset, now: number): number {
+  switch (preset) {
+    case "1h":
+      return now + HOUR_MS;
+    case "3h":
+      return now + 3 * HOUR_MS;
+    case "evening":
+      return atLocal(now, 0, EVENING_HOUR);
+    case "tomorrow":
+      return atLocal(now, 1, MORNING_HOUR);
+    case "nextWeek": {
+      const daysToMonday = (8 - new Date(now).getDay()) % 7 || 7;
+      return atLocal(now, daysToMonday, MORNING_HOUR);
+    }
+  }
+}
+
+const PRESET_LABELS: Record<SnoozePreset, string> = {
+  "1h": "In 1 hour",
+  "3h": "In 3 hours",
+  evening: "This evening",
+  tomorrow: "Tomorrow",
+  nextWeek: "Next week",
+};
+
+/** The menu's presets with their wake times. "This evening" is offered only before 18:00. */
+export function snoozeOptions(now: number): { id: SnoozePreset; label: string; until: number }[] {
+  const presets: SnoozePreset[] = ["1h", "3h", "evening", "tomorrow", "nextWeek"];
+  return presets
+    .map((id) => ({ id, label: PRESET_LABELS[id], until: snoozeUntil(id, now) }))
+    .filter((option) => option.until > now);
+}
+
+export type DurationUnit = "minutes" | "hours" | "days";
+
+const UNIT_MS: Record<DurationUnit, number> = {
+  minutes: 60 * 1000,
+  hours: HOUR_MS,
+  days: 24 * HOUR_MS,
+};
+
+export type CustomSnooze =
+  | { mode: "datetime"; date: string; time: string }
+  | { mode: "duration"; amount: string; unit: DurationUnit };
+
+/**
+ * The wake time a custom snooze form describes, or the reason it cannot be used. Dates are
+ * `YYYY-MM-DD` and times `HH:MM` (24h) in local time; the result must be in the future.
+ */
+export function parseCustomSnooze(
+  input: CustomSnooze,
+  now: number,
+): { until: number } | { error: string } {
+  let until: number;
+  if (input.mode === "duration") {
+    const amount = Number(input.amount.trim());
+    if (!input.amount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      return { error: "Enter a positive number" };
+    }
+    until = now + Math.round(amount * UNIT_MS[input.unit]);
+  } else {
+    const date = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(input.date.trim());
+    if (!date) return { error: "Date must look like 2026-11-04" };
+    const time = /^(\d{1,2}):(\d{2})$/.exec(input.time.trim());
+    if (!time) return { error: "Time must look like 14:30" };
+    const [year, month, day] = [Number(date[1]), Number(date[2]), Number(date[3])];
+    const [hours, minutes] = [Number(time[1]), Number(time[2])];
+    if (hours > 23 || minutes > 59) return { error: "Time must look like 14:30" };
+    const local = new Date(year, month - 1, day, hours, minutes, 0, 0);
+    if (local.getMonth() !== month - 1 || local.getDate() !== day) {
+      return { error: "That date does not exist" };
+    }
+    until = local.getTime();
+  }
+  if (until <= now) return { error: "Pick a time in the future" };
+  return { until };
+}
+
+function pad(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+/** Form defaults: one hour from now, as local `YYYY-MM-DD` and `HH:MM`. */
+export function customSnoozeDefaults(now: number): { date: string; time: string } {
+  const date = new Date(now + HOUR_MS);
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
 }
 
 /** The earliest future snooze wake time, so a view can re-render exactly when one expires. */

@@ -291,6 +291,8 @@ describe("formatWake", () => {
     const now = new Date(2026, 10, 3, 10, 0).getTime();
     expect(formatWake(new Date(2026, 10, 3, 14, 5).getTime(), now)).toBe("14:05");
     expect(formatWake(new Date(2026, 10, 4, 9, 0).getTime(), now)).toBe("tomorrow 09:00");
-    expect(formatWake(new Date(2026, 10, 6, 9, 0).getTime(), now)).toBe("11/6 09:00");
+    expect(formatWake(new Date(2026, 10, 4, 9, 0).getTime(), now, true)).toBe("09:00");
+    expect(formatWake(new Date(2026, 10, 9, 9, 0).getTime(), now)).toBe("Mon 09:00");
+    expect(formatWake(new Date(2026, 10, 12, 9, 0).getTime(), now)).toBe("11/12 09:00");
   });
 });

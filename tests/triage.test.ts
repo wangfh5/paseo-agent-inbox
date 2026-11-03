@@ -3,13 +3,16 @@ import type { AgentSnapshot } from "../client/monitor";
 import {
   applyOps,
   baseStateOf,
+  customSnoozeDefaults,
   effectiveTriage,
   newEventSince,
   nextWakeAt,
   obsoleteKeys,
+  parseCustomSnooze,
   planTriageWrite,
   settleRecord,
   signatureOf,
+  snoozeOptions,
   snoozeRecord,
   snoozeUntil,
   UNOBSERVED_RECORD_TTL_MS,
@@ -153,7 +156,7 @@ describe("effectiveTriage", () => {
 describe("snooze times", () => {
   test("1h and 4h are absolute offsets", () => {
     expect(snoozeUntil("1h", T0)).toBe(T0 + HOUR);
-    expect(snoozeUntil("4h", T0)).toBe(T0 + 4 * HOUR);
+    expect(snoozeUntil("3h", T0)).toBe(T0 + 3 * HOUR);
   });
 
   test("tomorrow is 09:00 on the next local calendar day", () => {
@@ -163,6 +166,65 @@ describe("snooze times", () => {
     expect(wake.getDate()).toBe(expected.getDate());
     expect(wake.getHours()).toBe(9);
     expect(wake.getMinutes()).toBe(0);
+  });
+
+  test("evening is 18:00 today and disappears from the menu after 18:00", () => {
+    const morning = new Date(2026, 10, 4, 10, 0).getTime();
+    expect(new Date(snoozeUntil("evening", morning)).getHours()).toBe(18);
+    expect(snoozeOptions(morning).map((option) => option.id)).toEqual([
+      "1h",
+      "3h",
+      "evening",
+      "tomorrow",
+      "nextWeek",
+    ]);
+    const night = new Date(2026, 10, 4, 19, 0).getTime();
+    expect(snoozeOptions(night).map((option) => option.id)).not.toContain("evening");
+  });
+
+  test("next week is the coming Monday 09:00, a full week out on a Monday", () => {
+    const wednesday = new Date(2026, 10, 4, 10, 0).getTime(); // Wed 4 Nov 2026
+    expect(new Date(snoozeUntil("nextWeek", wednesday))).toEqual(new Date(2026, 10, 9, 9, 0));
+    const monday = new Date(2026, 10, 9, 8, 0).getTime();
+    expect(new Date(snoozeUntil("nextWeek", monday))).toEqual(new Date(2026, 10, 16, 9, 0));
+  });
+
+  test("custom date and time parse in local time and must be in the future", () => {
+    const now = new Date(2026, 10, 4, 2, 0).getTime();
+    expect(parseCustomSnooze({ mode: "datetime", date: "2026-11-04", time: "02:13" }, now)).toEqual(
+      { until: new Date(2026, 10, 4, 2, 13).getTime() },
+    );
+    expect(parseCustomSnooze({ mode: "datetime", date: "2026-11-04", time: "01:59" }, now)).toEqual(
+      { error: "Pick a time in the future" },
+    );
+    expect(parseCustomSnooze({ mode: "datetime", date: "2026-02-30", time: "09:00" }, now)).toEqual(
+      { error: "That date does not exist" },
+    );
+    expect(
+      parseCustomSnooze({ mode: "datetime", date: "11/4", time: "09:00" }, now),
+    ).toHaveProperty("error");
+    expect(
+      parseCustomSnooze({ mode: "datetime", date: "2026-11-05", time: "25:00" }, now),
+    ).toHaveProperty("error");
+  });
+
+  test("custom duration adds to now; zero, negative or empty is rejected", () => {
+    expect(parseCustomSnooze({ mode: "duration", amount: "90", unit: "minutes" }, T0)).toEqual({
+      until: T0 + 90 * 60 * 1000,
+    });
+    expect(parseCustomSnooze({ mode: "duration", amount: "1.5", unit: "days" }, T0)).toEqual({
+      until: T0 + 36 * HOUR,
+    });
+    for (const amount of ["0", "-2", "", "abc"]) {
+      expect(parseCustomSnooze({ mode: "duration", amount, unit: "hours" }, T0)).toHaveProperty(
+        "error",
+      );
+    }
+  });
+
+  test("custom defaults are one hour ahead", () => {
+    const now = new Date(2026, 10, 4, 23, 30).getTime();
+    expect(customSnoozeDefaults(now)).toEqual({ date: "2026-11-05", time: "00:30" });
   });
 
   test("nextWakeAt picks the earliest future snooze and ignores settles and expired ones", () => {

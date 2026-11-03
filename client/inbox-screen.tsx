@@ -33,13 +33,8 @@ import {
   stateLabel,
 } from "./inbox";
 import { delegatedFromServerId, hostColor, title } from "./monitor";
-import {
-  SNOOZE_PRESETS,
-  type SnoozePreset,
-  settleRecord,
-  snoozeRecord,
-  snoozeUntil,
-} from "./triage";
+import { CustomSnoozeModal, SnoozeMenu } from "./snooze-menu";
+import { settleRecord, snoozeRecord } from "./triage";
 import { useInbox } from "./use-inbox";
 
 const CLOCK_INTERVAL_MS = 15_000;
@@ -195,16 +190,6 @@ function useStyles(theme: Theme, compact: boolean) {
         justifyContent: "center" as const,
       },
       pressed: { opacity: 0.6 },
-      menu: { ...row, flexWrap: "wrap" as const, gap: 6, paddingTop: 4 },
-      menuButton: {
-        minHeight: 26,
-        paddingHorizontal: 8,
-        borderRadius: 6,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        justifyContent: "center" as const,
-      },
-      menuText: { color: theme.colors.foreground, fontSize: 12 },
       empty: { color: muted, fontSize: 13, paddingHorizontal: inset, paddingVertical: 8 },
       error: {
         color: theme.colors.statusDanger,
@@ -302,14 +287,15 @@ function InboxSections({
       }),
     [triage],
   );
+  const [customFor, setCustomFor] = useState<InboxItem | null>(null);
   const snooze = useCallback(
-    (item: InboxItem, preset: SnoozePreset) => {
-      const at = Date.now();
+    (item: InboxItem, until: number) => {
       setSnoozeMenu(null);
+      setCustomFor(null);
       triage.apply({
         type: "set",
         key: item.key,
-        record: snoozeRecord(item.entry.agent, at, snoozeUntil(preset, at)),
+        record: snoozeRecord(item.entry.agent, Date.now(), until),
       });
     },
     [triage],
@@ -449,22 +435,15 @@ function InboxSections({
           )}
         </View>
         {snoozeMenu === item.key ? (
-          <View style={styles.menu}>
-            {SNOOZE_PRESETS.map((preset) => (
-              <Pressable
-                key={preset.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Snooze ${name} for ${preset.label}`}
-                onPress={() => snooze(item, preset.id)}
-                style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}
-              >
-                <Text style={styles.menuText}>
-                  {preset.label} · {formatWake(snoozeUntil(preset.id, now), now)}
-                </Text>
-              </Pressable>
-            ))}
-            {iconAction("Cancel snooze", "X", () => setSnoozeMenu(null))}
-          </View>
+          <SnoozeMenu
+            theme={theme}
+            now={now}
+            onPick={(until) => snooze(item, until)}
+            onCustom={() => {
+              setSnoozeMenu(null);
+              setCustomFor(item);
+            }}
+          />
         ) : null}
       </View>
     );
@@ -693,6 +672,16 @@ function InboxSections({
           </ScrollView>
         )}
       </View>
+      {customFor ? (
+        <CustomSnoozeModal
+          key={customFor.key}
+          theme={theme}
+          open
+          title={title(customFor.entry)}
+          onClose={() => setCustomFor(null)}
+          onSnooze={(until) => snooze(customFor, until)}
+        />
+      ) : null}
     </View>
   );
 }

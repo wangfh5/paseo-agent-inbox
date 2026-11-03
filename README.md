@@ -38,7 +38,7 @@ A record stops applying when the agent shows something new:
 - A new attention timestamp (another finished turn).
 - A new user prompt: native attention is _not_ reset by a follow-up prompt.
 
-It also stops applying once the agent leaves attention: read natively, resumed, or running. Any open client then deletes the record, so the supersession is permanent. Snoozes also end at their absolute wake time; the view re-renders at that moment. Snooze presets are 1 hour, 4 hours, and tomorrow 09:00 in the client's local time zone. **Undo settle** and **Unsnooze** delete the record.
+It also stops applying once the agent leaves attention: read natively, resumed, or running. Any open client then deletes the record, so the supersession is permanent. Snoozes also end at their absolute wake time; the view re-renders at that moment. Snooze offers In 1 hour, In 3 hours, This evening (18:00, only before then), Tomorrow (09:00) and Next week (Monday 09:00), each with its wake time, plus **Custom…**: a dialog to pick an exact date and time or a duration from now. All times are the client's local time zone. **Undo settle** and **Unsnooze** delete the record.
 
 ### Storage
 

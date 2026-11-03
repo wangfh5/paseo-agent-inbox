@@ -212,16 +212,22 @@ function twoDigits(value: number): string {
   return value < 10 ? `0${value}` : String(value);
 }
 
-/** "14:05", "tomorrow 09:00" or "11/5 09:00" in the client's local time zone. */
-export function formatWake(until: number, now: number): string {
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * A wake time in the client's local time zone: "14:05" today, "tomorrow 09:00", "Mon 09:00"
+ * within a week, else "11/12 09:00". With `bare`, today and tomorrow show the time alone, for a
+ * menu whose label already says which day.
+ */
+export function formatWake(until: number, now: number, bare = false): string {
   const date = new Date(until);
   const time = `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
-  const today = new Date(now);
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const sameDay = (left: Date, right: Date) => left.toDateString() === right.toDateString();
-  if (sameDay(date, today)) return time;
-  if (sameDay(date, tomorrow)) return `tomorrow ${time}`;
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const days = Math.floor((until - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
+  if (days === 0) return time;
+  if (days === 1) return bare ? time : `tomorrow ${time}`;
+  if (days > 1 && days < 7) return `${WEEKDAYS[date.getDay()]} ${time}`;
   return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
 }
 
