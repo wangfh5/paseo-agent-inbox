@@ -1,13 +1,7 @@
-Agent monitor is one roster of every agent on a host, so you can see which ones need you without walking the workspace tree. It adds an **Agent monitor** sidebar screen and a Command Center item. Agents are grouped by project and workspace and sorted into Attention, Running, Idle and Closed, where Attention covers agents that need input, have errored, or have a pending permission request. The sidebar row also shows a count of agents needing attention.
+Agent Inbox is one compact list of the top-level agents on every connected host, so you can see which ones need you without walking the workspace tree. Click a row to open the agent's native chat.
 
-Settings control grouping, sort order, density, which details each row shows, and the default filter. They are stored per host and shared by every connected client.
+Subagents are hidden by default, from the list, the counts and the sidebar badge alike, based on each agent's own parent metadata. **Settle** takes an agent out of the attention queue until a genuinely new event (new permission request, error, finished turn or user prompt). **Snooze** hides it until 1 hour, 4 hours or tomorrow 9:00, and wakes it early on a new event.
 
-The header switches between the **Roster** and a **Graph** view. The graph groups agents into compact project/workspace panels, adds provider-native subagents as dashed nodes, and draws parent, message and subagent edges with thickness scaled by message count. Cards can be dragged, the canvas panned and zoomed, and the graph filtered by project, workspace, provider, subagents or connected-only. Selecting a card or an edge focuses its neighbourhood and dims the rest.
+Settle and Snooze are the inbox's own state, stored in a settings document on the host the plugin is installed on. The plugin never renames, archives, stops, prompts or marks agents read.
 
-It reads agent, workspace and project lists through the selected host's existing connection and opens no connection of its own. While the graph is open, it also reads up to 200 timeline entries from each of up to 60 agents, prioritizing open and recently updated agents, four at a time. Readable timelines, including closed agents, contribute message and subagent information. The one lifecycle action it performs is archiving, either a single agent or all closed agents. It cannot interrupt a running turn.
-
-On Paseo 0.14 and later, eligible idle resumable agents are released after about an hour and appear in Closed (active work, descendants, pending finish notifications and provider safety checks keep a runtime resident). They keep their record and resume on the next prompt, so the closed-agent sweep archives them too. The host setting `agents.idleRuntimeCleanup: false` disables the release.
-
-On Paseo 0.15, restart recovery is off by default and agents that were running when the host stopped or crashed stay in Closed. With the host setting `agents.resumeOnStartup: true`, eligible ones are resumed in the background, and the closed-agent sweep archives any that have not resumed yet, which cancels their resume.
-
-Requires Paseo ^0.13.0 || ^0.14.0 || ^0.15.0.
+Forked from omercnet's Agent Monitor. Requires Paseo ^0.14.0.

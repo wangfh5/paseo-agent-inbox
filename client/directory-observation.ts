@@ -62,7 +62,7 @@ export function observeDirectoryInvalidation(paseo: PaseoApi, invalidate: () => 
     const { subscription } = await paseo.agents.list({ subscribe: {}, includeBackground: true });
     if (stopped) {
       await subscription.release().catch((error: unknown) => {
-        console.error("Agent Monitor agent observation cleanup failed", error);
+        console.error("Agent Inbox agent observation cleanup failed", error);
       });
       return;
     }
@@ -80,7 +80,7 @@ export function observeDirectoryInvalidation(paseo: PaseoApi, invalidate: () => 
     });
     if (stopped) {
       await subscription.release().catch((error: unknown) => {
-        console.error("Agent Monitor workspace observation cleanup failed", error);
+        console.error("Agent Inbox workspace observation cleanup failed", error);
       });
       return;
     }
@@ -92,7 +92,7 @@ export function observeDirectoryInvalidation(paseo: PaseoApi, invalidate: () => 
   };
 
   const reportFailure = (kind: "agent" | "workspace") => (error: unknown) => {
-    if (!stopped) console.error(`Agent Monitor ${kind} observation failed`, error);
+    if (!stopped) console.error(`Agent Inbox ${kind} observation failed`, error);
   };
 
   void attachAgents().catch(reportFailure("agent"));
@@ -104,7 +104,7 @@ export function observeDirectoryInvalidation(paseo: PaseoApi, invalidate: () => 
     for (const subscription of subscriptions) {
       subscription.unsubscribe();
       void subscription.release().catch((error: unknown) => {
-        console.error(`Agent Monitor ${subscription.kind} observation cleanup failed`, error);
+        console.error(`Agent Inbox ${subscription.kind} observation cleanup failed`, error);
       });
     }
     subscriptions.clear();

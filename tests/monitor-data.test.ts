@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { type PaseoApi, projectIndexKey } from "../client/monitor";
-import { loadAgents, loadWorkspaces, useAllHostsMonitor } from "../client/monitor-data";
+import type { PaseoApi } from "../client/monitor";
+import { loadAgents, useAllHostsMonitor } from "../client/monitor-data";
 
 const hooks = vi.hoisted(() => ({
   hosts: [] as Array<{ serverId: string; label: string; status: string }>,
@@ -69,15 +69,6 @@ describe("directory loaders", () => {
     expect(list).toHaveBeenCalledWith(
       expect.objectContaining({ sort: [{ key: "created_at", direction: "desc" }] }),
     );
-  });
-
-  test("workspace pages include background workspaces", async () => {
-    const list = pagedList([{ id: "w" }]);
-    const paseo = { workspaces: { list } } as unknown as PaseoApi;
-
-    await loadWorkspaces(paseo);
-
-    expect(list).toHaveBeenCalledWith(expect.objectContaining({ includeBackground: true }));
   });
 
   test("reports a truncated roster when the page cap is hit", async () => {
@@ -150,29 +141,23 @@ describe("useAllHostsMonitor", () => {
       { serverId: "srv-b", label: "beta", status: "online" },
     ];
 
-    const alpha = { serverId: "srv-a", label: "alpha" };
-    const beta = { serverId: "srv-b", label: "beta" };
     const monitor = useAllHostsMonitor();
     const data = (await hooks.query?.queryFn()) as {
       entries: Array<{ id: string; hostScope?: { label: string } }>;
-      directory: { workspaces: Map<string, unknown>; projects: Map<string, { name: string }> };
       truncated: boolean;
+      completeHosts: string[];
     };
 
     expect(monitor.hosts.map((host) => host.label)).toEqual(["alpha", "beta"]);
     expect(data.entries.map((entry) => entry.id).sort()).toEqual(["alpha-entry", "beta-entry"]);
     expect(data.entries.map((entry) => entry.hostScope?.label).sort()).toEqual(["alpha", "beta"]);
     expect(data.truncated).toBe(false);
-    expect(data.directory.workspaces.get("w1")).toMatchObject({
-      name: "main",
-      pinned: true,
-      additions: 3,
-      deletions: 1,
-    });
-    // The same project key on two hosts stays two records, one per host.
-    expect(data.directory.projects.get(projectIndexKey(alpha, "k1"))?.name).toBe("Renamed");
-    expect(data.directory.projects.get(projectIndexKey(beta, "k1"))?.name).toBe("Renamed");
-    expect(data.directory.projects.has("k1")).toBe(false);
+    // Workspace and project directories are not loaded: rows read placement from each agent.
+    expect(hostA.workspaces.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ page: expect.anything() }),
+    );
+    expect(hostA.projects.list).not.toHaveBeenCalled();
+    expect(data.completeHosts.sort()).toEqual(["srv-a", "srv-b"]);
 
     const cleanups = hooks.effects.map((effect) => effect()).filter(Boolean);
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -200,6 +185,8 @@ describe("useAllHostsMonitor", () => {
     };
 
     expect(data.failedHosts).toEqual(["beta"]);
+    // A failed host is never "complete", so its triage records are kept.
+    expect((data as unknown as { completeHosts: string[] }).completeHosts).toEqual(["srv-a"]);
     expect(data.entries.map((entry) => entry.id)).toEqual(["alpha-entry"]);
   });
 });

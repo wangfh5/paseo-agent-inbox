@@ -6,18 +6,7 @@ import {
   observeDirectoryInvalidation,
   retainShared,
 } from "./directory-observation";
-import {
-  type AgentEntry,
-  type HostScope,
-  indexProjects,
-  type MonitorDirectory,
-  type PaseoApi,
-  type PaseoWorkspace,
-  type ProjectSummary,
-  projectIndexKey,
-  type WorkspaceSummary,
-  withHostScope,
-} from "./monitor";
+import { type AgentEntry, type HostScope, type PaseoApi, withHostScope } from "./monitor";
 
 const PAGE_LIMIT = 200;
 const MAX_PAGES = 10;
@@ -26,7 +15,6 @@ const BACKSTOP_REFETCH_MS = 30_000;
 
 export type MonitorData = {
   entries: AgentEntry[];
-  directory: MonitorDirectory;
   /** True when the agent list hit the page cap, so the roster is a prefix of the host's agents. */
   truncated: boolean;
 };
@@ -49,75 +37,23 @@ export async function loadAgents(
   return { entries, truncated: true };
 }
 
-export async function loadWorkspaces(paseo: PaseoApi): Promise<PaseoWorkspace[]> {
-  const workspaces: PaseoWorkspace[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const result = await paseo.workspaces.list({
-      includeBackground: true,
-      page: { limit: PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
-    });
-    workspaces.push(...result.entries);
-    cursor = result.pageInfo.hasMore ? (result.pageInfo.nextCursor ?? undefined) : undefined;
-    if (!cursor) break;
-  }
-  return workspaces;
-}
-
-async function loadDirectory(paseo: PaseoApi): Promise<MonitorData> {
-  const [agents, workspaces, registry] = await Promise.all([
-    loadAgents(paseo),
-    loadWorkspaces(paseo),
-    paseo.projects.list(),
-  ]);
-  const workspaceSummaries = new Map<string, WorkspaceSummary>();
-  for (const workspace of workspaces) {
-    workspaceSummaries.set(workspace.id, {
-      id: workspace.id,
-      navigationId: workspace.id,
-      name: workspace.name,
-      projectId: workspace.projectId,
-      projectName: workspace.projectDisplayName,
-      pinned: workspace.pinnedAt != null,
-      labels: workspace.labels ?? [],
-      additions: workspace.diffStat?.additions ?? 0,
-      deletions: workspace.diffStat?.deletions ?? 0,
-    });
-  }
-  const projects = indexProjects(
-    registry.projects.map((project) => ({
-      id: project.projectId,
-      key: project.projectKey,
-      name: project.projectCustomName?.trim() || project.projectDisplayName,
-    })),
-  );
-  return {
-    entries: agents.entries,
-    directory: { workspaces: workspaceSummaries, projects },
-    truncated: agents.truncated,
-  };
-}
-
 export type MultiHostMonitor = {
   /** Online hosts in a stable order. */
   hosts: HostScope[];
   /** Entries from every host, tagged with the host they were listed from. */
   entries: AgentEntry[];
-  directory: MonitorDirectory;
   /** True when any host's agent list hit the page cap. */
   truncated: boolean;
-  /** Labels of hosts whose directory failed to load; their agents are missing. */
+  /** Labels of hosts whose agent list failed to load; their agents are missing. */
   failedHosts: string[];
+  /** Server ids whose full agent list loaded (not failed, not truncated). */
+  completeHosts: string[];
   isPending: boolean;
   isFetching: boolean;
   /** True while the previous host set's roster stands in for a new one that is still loading. */
   isPlaceholderData: boolean;
   refetchAll: () => void;
 };
-
-function emptyDirectory(): MonitorDirectory {
-  return { workspaces: new Map(), projects: new Map() };
-}
 
 function clientFor(serverId: string): PaseoApi | null {
   try {
@@ -127,39 +63,33 @@ function clientFor(serverId: string): PaseoApi | null {
   }
 }
 
-async function loadHostDirectory(host: HostScope): Promise<MonitorData> {
+async function loadHostAgents(host: HostScope): Promise<MonitorData> {
   const client = clientFor(host.serverId);
   if (!client) throw new Error(`host ${host.label} is not available`);
-  return loadDirectory(client);
+  return loadAgents(client);
 }
 
-/**
- * Merge per-host directories. Workspace ids are daemon-scoped UUIDs and never
- * collide; project index keys can (the same repo registered on two hosts), so
- * each host's projects are indexed under `projectIndexKey(host, key)`.
- */
-export function mergeHostDirectories(
-  loaded: ReadonlyArray<{ host: HostScope; data: MonitorData }>,
-): { entries: AgentEntry[]; directory: MonitorDirectory; truncated: boolean } {
+/** Merge per-host agent lists, tagging each entry with the host it came from. */
+export function mergeHostAgents(loaded: ReadonlyArray<{ host: HostScope; data: MonitorData }>): {
+  entries: AgentEntry[];
+  truncated: boolean;
+  completeHosts: string[];
+} {
   const entries: AgentEntry[] = [];
-  const workspaces = new Map<string, WorkspaceSummary>();
-  const projects = new Map<string, ProjectSummary>();
+  const completeHosts: string[] = [];
   let truncated = false;
   for (const { host, data } of loaded) {
     for (const entry of data.entries) entries.push(withHostScope(entry, host));
-    for (const [id, workspace] of data.directory.workspaces) workspaces.set(id, workspace);
-    for (const [key, project] of data.directory.projects) {
-      projects.set(projectIndexKey(host, key), project);
-    }
     truncated = truncated || data.truncated;
+    if (!data.truncated) completeHosts.push(host.serverId);
   }
-  return { entries, directory: { workspaces, projects }, truncated };
+  return { entries, truncated, completeHosts };
 }
 
 /**
- * The monitor's multi-host directory query: one directory load per online
- * host, merged into a single entry list. Offline hosts are skipped; a host
- * that fails is left out of the merged data and reported by label.
+ * The inbox's multi-host agent query: one agent list per online host, merged into a single entry
+ * list. Offline hosts are skipped; a host that fails is left out of the merged data and reported
+ * by label, so it never takes the other hosts down with it.
  */
 export function useAllHostsMonitor(): MultiHostMonitor {
   const hosts = useHosts();
@@ -173,7 +103,7 @@ export function useAllHostsMonitor(): MultiHostMonitor {
   );
   const queryClient = useQueryClient();
   const queryKey = useMemo(
-    () => ["agent-monitor", "agents", "all", online.map((host) => host.serverId).join(",")],
+    () => ["agent-inbox", "agents", "all", online.map((host) => host.serverId).join(",")],
     [online],
   );
   // One observation and backstop per host client, however many components read
@@ -212,7 +142,7 @@ export function useAllHostsMonitor(): MultiHostMonitor {
       const settled = await Promise.all(
         online.map(async (host) => {
           try {
-            return { host, data: await loadHostDirectory(host), failed: false as const };
+            return { host, data: await loadHostAgents(host), failed: false as const };
           } catch {
             return { host, data: null, failed: true as const };
           }
@@ -224,13 +154,7 @@ export function useAllHostsMonitor(): MultiHostMonitor {
         if (part.failed) failedHosts.push(part.host.label);
         else loaded.push({ host: part.host, data: part.data as MonitorData });
       }
-      const merged = mergeHostDirectories(loaded);
-      return {
-        entries: merged.entries,
-        directory: merged.directory,
-        truncated: merged.truncated,
-        failedHosts,
-      };
+      return { ...mergeHostAgents(loaded), failedHosts };
     },
     staleTime: 20_000,
     // A host going online or offline changes the key; keep the last roster on
@@ -241,9 +165,9 @@ export function useAllHostsMonitor(): MultiHostMonitor {
   return {
     hosts: online,
     entries: data?.entries ?? [],
-    directory: data?.directory ?? emptyDirectory(),
     truncated: data?.truncated ?? false,
     failedHosts: data?.failedHosts ?? [],
+    completeHosts: data?.completeHosts ?? [],
     isPending: query.isPending,
     isFetching: query.isFetching,
     isPlaceholderData: query.isPlaceholderData,

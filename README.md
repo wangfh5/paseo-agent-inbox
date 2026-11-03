@@ -1,175 +1,97 @@
-# agent-monitor
+# Agent Inbox
 
-One roster for every agent on a daemon: an `Agent monitor` screen in the sidebar plus a global
-Command Center item (`Open agent monitor`). The sidebar row also counts the agents
-that need attention.
+An agent-first inbox for [Paseo](https://github.com/getpaseo/paseo): one compact list of the top-level agents on every connected host, with **Settle** and **Snooze** for lightweight attention management. Clicking a row opens the agent's native chat; replies, permission approvals and everything else happen there.
 
-Answers "which of my 38 agents needs me right now" without walking the workspace tree.
+Forked from [omercnet's Agent Monitor](https://github.com/omercnet/paseo-plugins/tree/main/agent-monitor) (4.4.1, commit `eaa702b`). MIT, original copyright retained in `LICENSE`.
 
-## Demo
+## What it does
 
-https://github.com/user-attachments/assets/3c841799-ed98-4ec4-86a0-a7917e3894fc
+- **All hosts, one list.** Every online host is listed and merged. Each agent is identified by `serverId/agentId`, so the same title or id on two hosts never collides. A host that fails or goes offline is reported and skipped; the other hosts keep working.
+- **Subagents hidden by default.** An agent is a subagent when its own metadata names a parent (`parentAgentId` on 0.15, the `paseo.parent-agent-id` / `paseo.parent-server-id` labels on 0.14). That holds for nested, cross-workspace and cross-host children, and for children whose parent is offline or archived. Detaching removes those labels, so a detached agent shows up as top level. Agents without parent metadata are always shown; titles are never used. The list, chips, search, sidebar badge and popover all derive from the same item set.
+- **Views:** Needs attention · Running · Idle · All, plus Settled / Snoozed when non-empty. Optional host filter (default All hosts), sort (Triage / Recent / Title), and search.
+- **States follow Paseo's own classification** (`deriveAgentStateBucket`): a pending permission or an error is attention; running and initializing are running; otherwise the native `requiresAttention` flag (finished unread) is attention; the rest is idle. `closed` means the runtime was released but the agent is resumable, so it counts as idle (or attention when it finished unread), never as archived. Archived agents are not listed.
 
-## Screenshots
+## Settle and Snooze
 
-Agent, project, and workspace names come from an isolated synthetic workspace. The roster and
-settings PNGs were captured at 2× pixel density after browser DevTools replaced the local host
-label and verified that no private organization names remained in the rendered page. The graph
-screenshot uses the same synthetic project and agent names.
+Both are the inbox's own records. They never change the agent, its unread state or its native attention flag.
 
-### Project-first roster
+| Paseo state     | Inbox action | Inbox shows                              |
+| --------------- | ------------ | ---------------------------------------- |
+| Needs attention | —            | In the queue                             |
+| Needs attention | Settle       | Settled (in All / Settled), not counted  |
+| Needs attention | Snooze       | Snoozed until the wake time, not counted |
+| Running / Idle  | —            | Running / Idle (triage does not apply)   |
 
-![Agent Monitor project-first roster](https://raw.githubusercontent.com/omercnet/paseo-plugins/main/agent-monitor/docs/images/agent-monitor-roster.png)
+Each record stores the **attention signature** the user saw:
 
-### Graph view
+- `reason@attentionTimestamp`. The daemon stamps this when it raises attention, persists it, and does not rewrite it while attention stays set.
+- The ids of pending permission requests.
+- `lastUserMessageAt`.
+- The error text while the agent is in error.
 
-![Agent Monitor graph view](https://raw.githubusercontent.com/omercnet/paseo-plugins/main/agent-monitor/docs/images/agent-graph.png)
+`updatedAt`, titles, labels and re-syncs are ignored, so a refresh, reconnect or rename never revives a settled agent.
 
-### Monitor settings
+A record stops applying when the agent shows something new:
 
-![Agent Monitor settings sheet](https://raw.githubusercontent.com/omercnet/paseo-plugins/main/agent-monitor/docs/images/agent-monitor-settings.png)
+- A new permission id.
+- A new error.
+- A new attention timestamp (another finished turn).
+- A new user prompt: native attention is _not_ reset by a follow-up prompt.
 
-## What it shows
+It also stops applying once the agent leaves attention: read natively, resumed, or running. Any open client then deletes the record, so the supersession is permanent. Snoozes also end at their absolute wake time; the view re-renders at that moment. Snooze presets are 1 hour, 4 hours, and tomorrow 09:00 in the client's local time zone. **Undo settle** and **Unsnooze** delete the record.
 
-- Counts and filters by triage bucket: Attention, Running, Idle, Closed. Attention covers
-  `requiresAttention`, `status === "error"`, and pending permission requests.
-- Grouping and sort are separate. The **Group** row switches the roster between **Project**,
-  **Workspace**, **Host**, **Type** and **None** (flat), and the **Sort** row orders rows inside
-  every group: **Triage**, **Recent** or **A-Z**. Each chip carries its key: `P`/`W`/`H`/`Y`/`N`
-  group, `S`/`E`/`Z` sort. Host and Type groups collapse and expand like project headers. Choices
-  save in the host settings. Open the gear beside Refresh for the host-native Monitor settings
-  screen, which exposes the same grouping and sort (plus the rest of the display options).
-- Settings also control float-pinned sorting, agent sort (triage / recently updated / title),
-  collapse of matching workspace headers, density, default bucket, whether Closed stays out of
-  All, and display toggles for diffs, pin markers, model, wait age, subagent counts, last error, and
-  compact placement. Preferences are a typed, host-scoped document shared by connected clients.
-- Workspace headers show up to two workspace labels and current `+additions −deletions`
-  (additions in the success color, deletions in danger when color diffs are on).
-- Per row: a status dot that separates errors (danger) from agents waiting on you (warning) and
-  running agents (success), state and wait age on a right-aligned rail (`attentionTimestamp`,
-  falling back to `updatedAt`), model, and `lastError` inline.
-- Parent rows show their subagent count; child rows use a left indent guide.
-- Agents delegated from another host (`paseo.parent-server-id` names a different host) are listed as top-level rows with a "Delegated from `<host>`" hint. They are never counted under, or indented below, a local agent that happens to share the parent id.
-- Text filter over title, agent id, provider, model, cwd, project, and workspace.
-- **Graph view**: switch the header between Roster and Graph. Agents sit in compact
-  project/workspace panels; provider-native subagents appear as dashed nodes. Edges encode parent
-  hand-offs, timeline message provenance, and subagent dispatches, with thickness scaled by message
-  count. Drag cards, pan the canvas, zoom with the wheel or a trackpad pinch, filter by project,
-  workspace, provider, subagents, or connected-only, and select a card or edge to focus its
-  neighbourhood and dim the rest.
-- Select an agent row to open that agent, or select a workspace header (or its folder button when
-  collapsed) to open its workspace through Paseo's cross-platform navigation API.
-- Archive one agent, or sweep every closed agent (two taps).
-- **Multi-host**: when the client connects to more than one host, the monitor merges every online
-  host into one screen. The header counts agents across hosts, host chips filter the roster, rows
-  show their host in compact placement lines, and project groups merge by base name so one project
-  reads as one group (a per-host display suffix such as `ACME · alpha` does not split the group).
-  The graph adds a host filter row, shows the host in node details, and opens agents and workspaces
-  on their own host through the navigation `serverId`. Timeline sweeps run per host and merge, and
-  archive fans out to the owning host of each agent. A host that fails to load is named in a
-  warning while the rest keep working; the sidebar badge counts every online host. Graph cards and
-  workspace headers carry a host pill in the host's color when more than one host is shown, panels
-  spanning hosts list them, and project headers name their hosts.
-- **Agent overview**: a Mission Control grid with every running or attention-needing agent, summoned
-  from the command center. `1-9` jump straight to an agent, `Tab` or arrows move the selection,
-  `Enter` opens, `Esc` backs out. `Next agent` / `Previous agent` commands cycle the same list with
-  wraparound. Inside the monitor, `R`/`G`/`O` switch Roster, Graph and Overview, and `A`/`T`/`U`/`I`/`C`
-  pick All plus the four buckets; digits stay reserved for jumping straight to agents.
-- On Paseo 0.14 and later, eligible idle resumable agents are released after about an hour and appear in
-  Closed (active work, descendants, pending finish notifications and provider safety checks keep a
-  runtime resident). They keep their record and resume on the next prompt, so **Archive N closed** archives
-  them too. Set `agents.idleRuntimeCleanup: false` in the host config to disable the release.
-- On Paseo 0.15, restart recovery is off by default and agents that were running when the host stopped or
-  crashed stay in Closed. With `agents.resumeOnStartup: true` in the host config, eligible ones are resumed
-  in the background; **Archive N closed** then archives any that have not resumed yet, which cancels their resume.
+### Storage
 
-## Sidebar row
+The records live in a host-scoped Paseo settings document (`triage`) of the host the plugin is installed on. It is atomic and revisioned, survives plugin reloads, daemon restarts and reconnects, and is shared live by every client of that host. Writes happen only on user actions and when a record has become obsolete, never on polling. Revision conflicts between clients are retried against the fresh document. Records of agents on offline hosts are kept; they expire after 30 days unobserved.
 
-- The row's badge counts the Attention bucket across every online host, using the same rule as
-  the roster. It shows no number while the roster loads or when a failed host leaves no rows, and
-  `N+` when any host truncates or fails (the missing rows might need attention). The count drops
-  its lower bound once a failed host recovers.
-- Press the badge for the Mission Control overlay: running and attention-needing agents across
-  hosts, grouped with number badges (attention first, longest waiting). `1-9` jump straight to an
-  agent, `Tab` moves, `Enter` opens it directly, `Esc` dismisses the overlay. **Open monitor**
-  opens the roster filtered to Attention.
-- The monitor screen accepts a `bucket` param (`attention`, `running`, `idle`, `closed`, or `all`)
-  as its initial filter, so a link such as `…/surface/monitor?param.bucket=attention` opens
-  filtered and keeps that filter on reload. Chips then filter in place without changing the URL.
-
-## How it reads state
-
-Each online host is read through its own existing client (`getPaseoClient(serverId)`):
-`agents.list()` pages the daemon agent directory, `workspaces.list()` reads workspace pin state,
-project id, and diff stats (200 per page, up to 10 pages each), and `projects.list()` supplies
-registered project names, including custom renames, so an agent whose workspace is beyond the
-paged workspace list still lands under its real project. Rows refresh from agent, workspace, and
-project subscription deltas on every host, debounced 750ms, with a 30s backstop refetch. The
-screen, the sidebar row, and its popover share that query, subscription set, and backstop; on web
-and desktop, refreshes pause while the window is hidden and catch up when it returns. The plugin
-opens no socket of its own. Agents and workspaces in background workspaces are included.
-
-The graph reads timeline tails (200 entries, up to 60 agents per host, four at a time) to derive message
-and subagent edges. It refreshes every 30 seconds while open in the foreground and when Refresh
-is pressed. Readable closed timelines can contribute interactions; unreadable timelines are
-counted in the graph toolbar. Filters only change the visible graph and do not start new scans.
-Each host's timelines are swept through that host's client and merged. Graph filters, selection, and positions
-are temporary; the existing host-scoped monitor settings are unchanged.
-
-## Limits
-
-Interrupting a turn is not part of `PaseoApi`, so archive is the only lifecycle action here.
-
-Popovers get no navigation, so a popover row reaches an agent through the monitor screen,
-which hands off to the agent as it mounts. The handoff runs on a tick past the route commit: a
-navigate dispatched while the pushed monitor route is still being committed is dropped by the
-router. If the handoff cannot happen, the monitor renders normally instead of leaving a blank
-screen; on hosts without navigation the same tap selects the agent's card in the graph.
+**Install the plugin on one host.** Records from every host are stored on that one. If you install it on several hosts, each keeps its own separate Settle/Snooze state, and the sidebar uses whichever host you last picked for the plugin.
 
 ## Install
 
-Requires Paseo `^0.13.0 || ^0.14.0 || ^0.15.0`, whose background workspaces the monitor lists. Development uses the 0.15 SDK line from the workspace catalog.
+Requires Paseo 0.14. Plugins are trusted, unsandboxed code. Plugins must be enabled on the target daemon (`"pluginsEnabled": true` in its `config.json`, then `paseo daemon reload`).
 
-Install the published package on the daemon host:
+```sh
+cd ~/Sync/infra/paseo-agents-monitor
+npm install          # dev dependencies, for checks only
+npm run typecheck && npm test
 
-```bash
-paseo plugin install npm:@omercnet/paseo-agent-monitor
-paseo plugin update agent-monitor
+paseo plugin install ~/Sync/infra/paseo-agents-monitor            # local daemon
+paseo plugin install ~/Sync/infra/paseo-agents-monitor --host <host:port>   # or another host
+paseo plugin ls
 ```
 
-## Install on more than one host
+It installs as `agent-inbox`, separate from `agent-monitor`, so both can run side by side.
 
-The monitor reads every online host no matter which installation renders it, so install it on each
-host whose client should keep working when the others are unreachable. The app groups the sidebar
-row by plugin and the surface keeps a host switcher, so two installs never show two rows.
+- **Update** after pulling changes: `paseo plugin reload agent-inbox`. A failed reload stays failed; fix and reload again.
+- **Disable / roll back:** `paseo plugin disable agent-inbox`, or `paseo plugin remove agent-inbox`. Removing deletes its settings and triage documents; the source directory is never deleted. Agent Monitor is unaffected either way.
 
-What stays per installation:
+## Development
 
-- Settings (`scope: "host"`): grouping, sort, density, the default bucket and the display toggles
-  live on each host. Change them on both sides if you want them to match.
-- The bundle: reload every host after each change (`paseo plugin reload agent-monitor` on each
-  daemon) and keep both clones on the same commit. A stale bundle renders with old behavior, and
-  the only symptom is the surface behaving differently per selected host.
-
-A daemon with plugins disabled rejects plugin calls; enable once with `"pluginsEnabled": true`
-in its `config.json` followed by `paseo reload`. Removing one side later is
-`paseo plugin remove agent-monitor` on that host.
-
-## Develop
-
-```bash
-bun install
-bun run check
-bun run test
-bun run test:coverage
-bun run typecheck
+```sh
+npm run typecheck   # tsc against @getpaseo/plugin 0.14.0
+npm test            # vitest
+npm run check       # biome
 ```
 
-Release Please maintains the version, changelog, component tag, and GitHub release from
-Conventional Commits in the monorepo.
+Pure logic lives in `client/triage.ts` (signatures, new-event detection, snooze and pruning) and `client/inbox.ts` (top-level filter, views, counts, ordering). `client/use-inbox.ts` combines the multi-host query (`client/monitor-data.ts`, inherited), the triage store (`client/triage-store.ts`) and the preferences into the one derivation every surface reads.
 
-The project supports Paseo `^0.13.0 || ^0.14.0 || ^0.15.0` and pins `@getpaseo/plugin`, `@getpaseo/client`,
-`@getpaseo/protocol`, and `@getpaseo/cli` to the 0.15 SDK line through the workspace catalog. Renovate groups `@getpaseo/*`
-updates so the SDKs move together.
+To verify an install the way users get it, install a packed copy into an isolated daemon, never `~/.paseo`:
 
-React `19.1` and React Native `0.81` intentionally match the versions supplied by Paseo.
+```sh
+W=$(mktemp -d); mkdir -p $W/home $W/x
+echo '{"version":1,"daemon":{"listen":"127.0.0.1:6799"},"pluginsEnabled":true}' > $W/home/config.json
+npm pack --ignore-scripts --pack-destination $W && tar -xzf $W/*.tgz -C $W/x
+paseo daemon start --home $W/home
+paseo plugin install $W/x/package --host 127.0.0.1:6799 --json   # expect "status": "running"
+paseo daemon stop --home $W/home
+```
+
+## Differences from Agent Monitor
+
+- Subagents are excluded from the list, counts and badge unless **Show subagents** is on. When on, children nest under their parents.
+- Settle and Snooze are added, with their own `triage` settings document.
+- Attention follows Paseo's native order: an unread finished `closed` agent is attention, where Agent Monitor files it under Closed.
+- Removed: Graph view, Overview / mission control, project / workspace / host / provider grouping, diff stats, pin markers, density, keyboard shortcuts, next/previous cycling, and archive actions (single and bulk). The inbox performs no lifecycle action at all.
+- Workspace and project directories are no longer loaded; rows read placement from each agent entry. That means fewer requests per refresh.
+- Row identity is `serverId/agentId` (Agent Monitor keyed rows by agent id alone).
+- Plugin id `agent-inbox`; preferences document `inbox` (`showSubagents`, `agentSort`, `showPlacement`, `defaultView`).

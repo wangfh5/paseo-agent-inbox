@@ -146,11 +146,11 @@ describe("directory invalidation observations", () => {
     expect(agents.subscription.release).toHaveBeenCalledOnce();
     expect(workspaces.subscription.release).toHaveBeenCalledOnce();
     expect(reportError).toHaveBeenCalledWith(
-      "Agent Monitor agent observation cleanup failed",
+      "Agent Inbox agent observation cleanup failed",
       releaseFailure,
     );
     expect(reportError).toHaveBeenCalledWith(
-      "Agent Monitor workspace observation cleanup failed",
+      "Agent Inbox workspace observation cleanup failed",
       releaseFailure,
     );
     reportError.mockRestore();

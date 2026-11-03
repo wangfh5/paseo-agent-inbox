@@ -1,53 +1,28 @@
 import type { PluginPopoverProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
-import { requestAgentOpen, setCycleList } from "./focus-request";
-import { age, attentionCount, attentionItems, hostColor } from "./monitor";
-import { useAllHostsMonitor } from "./monitor-data";
-import { digitIndex, moveSelection, type OverviewItem, overviewItems } from "./overview";
-import { useKeyDown, type WebKeyEvent } from "./web-keys";
+import { requestAgentOpen } from "./focus-request";
+import { activityAt, compareItems, type InboxItem, stateLabel } from "./inbox";
+import { age, hostColor, title } from "./monitor";
+import { useInbox } from "./use-inbox";
 
-export const MONITOR_SCREEN_ID = "monitor";
-const OVERVIEW_LIMIT = 12;
+export const INBOX_SCREEN_ID = "inbox";
+const POPOVER_LIMIT = 12;
+const SIDEBAR_CLOCK_MS = 60_000;
 
-/**
- * Attention state across every online host, sharing the screen's merged query
- * so the badge never misses an agent on another host. A host that fails to
- * load makes the count a lower bound instead of hiding it.
- */
-function useAttention() {
-  const monitor = useAllHostsMonitor();
-  const items = useMemo(() => attentionItems(monitor.entries), [monitor.entries]);
-  useEffect(() => {
-    setCycleList(
-      overviewItems(monitor.entries).map((item) => ({
-        agentId: item.id,
-        serverId: item.host?.serverId,
-      })),
-    );
-  }, [monitor.entries]);
-  return {
-    items,
-    summary: attentionCount({
-      items,
-      truncated: monitor.truncated,
-      failed: monitor.failedHosts.length > 0,
-      // The previous host set's roster stands in while a new one loads; its count is not this one's.
-      loading: monitor.isPending || monitor.isPlaceholderData,
-    }),
-  };
+function badgeLabel(summary: { count: number; lowerBound: boolean } | null): string | null {
+  return summary && summary.count > 0 ? `${summary.count}${summary.lowerBound ? "+" : ""}` : null;
 }
 
-export function MonitorSidebarItem({
+export function InboxSidebarItem({
   theme,
   currentScreen,
   openScreen,
   openPopover,
 }: PluginSidebarItemProps) {
-  const { summary } = useAttention();
-  const label =
-    summary && summary.count > 0 ? `${summary.count}${summary.lowerBound ? "+" : ""}` : null;
+  const { summary } = useInbox(SIDEBAR_CLOCK_MS);
+  const label = badgeLabel(summary);
   const styles = useMemo(
     () => ({
       badge: {
@@ -65,10 +40,10 @@ export function MonitorSidebarItem({
   );
   return (
     <SidebarRow
-      icon="Radar"
-      label="Agent monitor"
-      active={currentScreen?.screenId === MONITOR_SCREEN_ID}
-      onPress={() => openScreen({ screenId: MONITOR_SCREEN_ID })}
+      icon="Inbox"
+      label="Agent inbox"
+      active={currentScreen?.screenId === INBOX_SCREEN_ID}
+      onPress={() => openScreen({ screenId: INBOX_SCREEN_ID })}
       trailing={
         label ? (
           <Pressable
@@ -85,208 +60,102 @@ export function MonitorSidebarItem({
   );
 }
 
-function openOverlayItem(openScreen: PluginPopoverProps["openScreen"], item: OverviewItem): void {
+function openAgent(openScreen: PluginPopoverProps["openScreen"], item: InboxItem): void {
   const token = String(Date.now());
-  requestAgentOpen({ agentId: item.id, serverId: item.host?.serverId, token });
-  openScreen({
-    screenId: MONITOR_SCREEN_ID,
-    params: { openAgent: token },
-  });
+  requestAgentOpen({ agentId: item.entry.agent.id, serverId: item.host?.serverId, token });
+  openScreen({ screenId: INBOX_SCREEN_ID, params: { openAgent: token } });
 }
 
-function AttentionPopover({ theme, layout, openScreen }: PluginPopoverProps) {
-  const { items, summary } = useAttention();
-  const monitor = useAllHostsMonitor();
-  const overview = useMemo(() => overviewItems(monitor.entries), [monitor.entries]);
-  const shown = useMemo(() => overview.slice(0, OVERVIEW_LIMIT), [overview]);
-  const [selected, setSelected] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(clock);
-  }, []);
-  useEffect(() => {
-    if (selected >= shown.length) setSelected(shown.length > 0 ? 0 : -1);
-  }, [shown.length, selected]);
-  useKeyDown(
-    useCallback(
-      (event: WebKeyEvent) => {
-        // The app dismisses the popover on Escape; never fight it here.
-        if (event.key === "Escape") return;
-        if (event.key === "Enter") {
-          const item = shown[selected];
-          if (item) openOverlayItem(openScreen, item);
-          return;
-        }
-        if (event.key === "Tab") {
-          event.preventDefault();
-          setSelected((index) => moveSelection(index, shown.length, event.shiftKey ? -1 : 1));
-          return;
-        }
-        if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-          event.preventDefault();
-          setSelected((index) => moveSelection(index, shown.length, 1));
-          return;
-        }
-        if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-          event.preventDefault();
-          setSelected((index) => moveSelection(index, shown.length, -1));
-          return;
-        }
-        const jump = digitIndex(event.key);
-        if (jump !== null && jump < shown.length) {
-          const item = shown[jump];
-          setSelected(jump);
-          if (item) openOverlayItem(openScreen, item);
-        }
-      },
-      [shown, selected, openScreen],
-    ),
-    // The popover can open over the monitor's overview; only it handles keys then.
-    true,
+/** The attention queue, from the same derivation as the badge and the screen. */
+function AttentionPopover({ theme, layout, openScreen, close }: PluginPopoverProps) {
+  const { items, summary, now } = useInbox(SIDEBAR_CLOCK_MS);
+  const queue = useMemo(
+    () =>
+      (items ?? [])
+        .filter((item) => item.needsAttention)
+        .sort((l, r) => compareItems(l, r, "updated")),
+    [items],
   );
+  const shown = queue.slice(0, POPOVER_LIMIT);
   const styles = useMemo(
     () => ({
-      root: { gap: layout.compact ? 10 : 6, minWidth: 300 },
+      root: { gap: layout.compact ? 8 : 4, minWidth: 300 },
       heading: { color: theme.colors.foreground, fontSize: 13, fontWeight: "600" as const },
       detail: { color: theme.colors.foregroundMuted, fontSize: 12 },
-      sectionHead: {
-        color: theme.colors.foregroundMuted,
-        fontSize: 11,
-        fontWeight: "600" as const,
-        marginTop: 6,
-      },
-      rowPress: {
+      row: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
         gap: 8,
         paddingVertical: 4,
-        paddingHorizontal: 6,
-        borderRadius: 8,
       },
-      rowSelected: {
-        backgroundColor: theme.colors.surface2,
-      },
-      badge: {
-        minWidth: 20,
-        alignItems: "center" as const,
-        borderRadius: 6,
-        backgroundColor: theme.colors.surface2,
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-      },
-      badgeText: { color: theme.colors.foregroundMuted, fontSize: 11 },
       rowBody: { flex: 1, gap: 1 },
-      rowTitleLine: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
-      rowTitle: { flex: 1, color: theme.colors.foreground, fontSize: 13 },
-      rowState: { color: theme.colors.foregroundMuted, fontSize: 12 },
+      rowTitle: { color: theme.colors.foreground, fontSize: 13 },
       action: {
-        minHeight: 36,
+        minHeight: 32,
         justifyContent: "center" as const,
         paddingHorizontal: 12,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: theme.colors.border,
+        marginTop: 4,
       },
       actionText: { color: theme.colors.foreground, fontSize: 13 },
     }),
     [theme, layout.compact],
   );
-  const hidden = overview.length - shown.length;
-  const runningCount = overview.filter((item) => !item.needsAttention).length;
-  let heading = "Checking agents…";
-  if (summary) {
-    const attention =
-      summary.count === 0
-        ? summary.lowerBound
-          ? "None of the newest agents need attention; older ones were not checked"
-          : "No agents need attention"
-        : `${summary.count}${summary.lowerBound ? "+" : ""} need attention`;
-    heading =
-      runningCount > 0 && summary.count > 0 ? `${attention} · ${runningCount} running` : attention;
-  } else if (items) {
-    heading = "Attention list may be out of date";
-  }
+  const label = badgeLabel(summary);
   return (
     <View style={styles.root}>
-      <Text style={styles.heading}>{heading}</Text>
-      {shown.map((item, index) => {
+      <Text style={styles.heading}>
+        {summary === null
+          ? "Checking agents…"
+          : label
+            ? `${label} need attention`
+            : "Nothing needs attention"}
+      </Text>
+      {shown.map((item) => {
         const color = item.host ? hostColor(item.host) : theme.colors.foregroundMuted;
-        const isSelected = index === selected;
-        const startsAttention = index === 0 && item.needsAttention;
-        const startsRunning = index > 0 && !item.needsAttention && shown[index - 1]?.needsAttention;
         return (
-          <Fragment key={item.id}>
-            {startsAttention ? <Text style={styles.sectionHead}>Needs attention</Text> : null}
-            {startsRunning ? <Text style={styles.sectionHead}>Running</Text> : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${item.title}`}
-              onPress={() => {
-                setSelected(index);
-                openOverlayItem(openScreen, item);
+          <Pressable
+            key={item.key}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${title(item.entry)}`}
+            onPress={() => openAgent(openScreen, item)}
+            style={({ pressed }) => [styles.row, pressed ? { opacity: 0.6 } : null]}
+          >
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: theme.colors.statusWarning,
               }}
-              style={[styles.rowPress, isSelected ? styles.rowSelected : null]}
-            >
-              {index < 9 ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{index + 1}</Text>
-                </View>
-              ) : (
-                <View
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: item.needsAttention
-                      ? theme.colors.statusWarning
-                      : theme.colors.foregroundMuted,
-                  }}
-                />
-              )}
-              <View style={styles.rowBody}>
-                <View style={styles.rowTitleLine}>
-                  <Text style={styles.rowTitle} numberOfLines={1} ellipsizeMode="tail">
-                    {item.title}
-                  </Text>
-                  {item.host ? (
-                    <View
-                      accessibilityLabel={`Host ${item.host.label}`}
-                      style={{
-                        paddingHorizontal: 6,
-                        paddingVertical: 1,
-                        borderRadius: 7,
-                        borderWidth: 1,
-                        borderColor: `${color}66`,
-                        backgroundColor: `${color}26`,
-                      }}
-                    >
-                      <Text style={{ color, fontSize: 9, fontWeight: "700" }}>
-                        {item.host.label}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.rowState} numberOfLines={1} ellipsizeMode="tail">
-                  {item.state} · {age(item.since, now)} · {item.detail}
-                </Text>
-              </View>
-            </Pressable>
-          </Fragment>
+            />
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {title(item.entry)}
+              </Text>
+              <Text style={styles.detail} numberOfLines={1}>
+                {item.host ? <Text style={{ color }}>{item.host.label} · </Text> : null}
+                {stateLabel(item)} · {age(activityAt(item), now)}
+              </Text>
+            </View>
+          </Pressable>
         );
       })}
-      {hidden > 0 ? <Text style={styles.detail}>and {hidden} more</Text> : null}
-      {shown.length === 0 && summary ? (
-        <Text style={styles.detail}>No running agents right now.</Text>
+      {queue.length > shown.length ? (
+        <Text style={styles.detail}>and {queue.length - shown.length} more</Text>
       ) : null}
-      <Text style={styles.detail}>1-9 jump straight in · Tab moves · Enter opens · Esc closes</Text>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Open monitor"
-        onPress={() => openScreen({ screenId: MONITOR_SCREEN_ID, params: { bucket: "attention" } })}
+        accessibilityLabel="Open agent inbox"
+        onPress={() => {
+          close();
+          openScreen({ screenId: INBOX_SCREEN_ID, params: { view: "attention" } });
+        }}
         style={styles.action}
       >
-        <Text style={styles.actionText}>Open monitor</Text>
+        <Text style={styles.actionText}>Open inbox</Text>
       </Pressable>
     </View>
   );

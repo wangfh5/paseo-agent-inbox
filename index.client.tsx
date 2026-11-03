@@ -1,111 +1,57 @@
 import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
-import { AgentMonitor } from "./client/agent-monitor";
-import { requestAgentOpen, stepCycle } from "./client/focus-request";
-import { MonitorSettingsScreen } from "./client/settings-screen";
-import { MONITOR_SCREEN_ID, MonitorSidebarItem } from "./client/sidebar";
-
-export const OVERVIEW_VIEW_PARAM = "overview";
+import { InboxScreen } from "./client/inbox-screen";
+import { InboxSettingsScreen } from "./client/settings-screen";
+import { INBOX_SCREEN_ID, InboxSidebarItem } from "./client/sidebar";
 
 export default function contribute(client: PluginClientContext) {
   const removeSettings = client.addSettingsScreen({
-    id: "monitor",
-    title: "Monitor settings",
+    id: "inbox",
+    title: "Inbox settings",
     icon: "Settings",
-    Component: MonitorSettingsScreen,
+    Component: InboxSettingsScreen,
   });
-
-  // Registered under the retired sidebar item's id so saved links keep working.
   const removeScreen = client.addScreen({
-    id: MONITOR_SCREEN_ID,
-    title: "Agent monitor",
+    id: INBOX_SCREEN_ID,
+    title: "Agent inbox",
+    // biome-ignore lint/correctness/noComponentHookFactories: created once per installation, not per render; it closes over `client.openSettings`.
     Component: (props: PluginScreenProps) => (
-      <AgentMonitor
+      <InboxScreen
         {...props}
-        bucketParam={props.params.bucket}
-        agentParam={props.params.agent}
-        openAgentToken={props.params.openAgent}
         viewParam={props.params.view}
-        onOpenSettings={() => client.openSettings("monitor")}
+        openAgentToken={props.params.openAgent}
+        onOpenSettings={() => client.openSettings("inbox")}
       />
     ),
   });
   const removeSidebarItem = client.addSidebarHeaderItem({
-    id: "monitor",
-    title: "Agent monitor",
-    Component: MonitorSidebarItem,
+    id: "inbox",
+    title: "Agent inbox",
+    Component: InboxSidebarItem,
   });
-
-  const removeOpenMonitor = client.addCommandCenterItem({
-    id: "open-monitor",
-    title: "Open agent monitor",
-    icon: "Radar",
-    keywords: ["agents", "sessions", "monitor", "triage"],
+  const removeOpenInbox = client.addCommandCenterItem({
+    id: "open-inbox",
+    title: "Open agent inbox",
+    icon: "Inbox",
+    keywords: ["agents", "sessions", "inbox", "attention", "triage"],
     context: "global",
     onSelect({ openScreen }) {
-      openScreen({ screenId: MONITOR_SCREEN_ID });
+      openScreen({ screenId: INBOX_SCREEN_ID });
     },
   });
-  const removeNextCommand = client.addCommandCenterItem({
-    id: "cycle-next-agent",
-    title: "Next agent",
-    icon: "ChevronRight",
-    keywords: ["next", "cycle", "agent", "switch", "keyboard"],
-    context: "global",
-    onSelect({ openScreen }) {
-      const token = String(Date.now());
-      const target = stepCycle(1);
-      if (!target) {
-        openScreen({ screenId: MONITOR_SCREEN_ID, params: { view: OVERVIEW_VIEW_PARAM } });
-        return;
-      }
-      requestAgentOpen({ agentId: target.agentId, serverId: target.serverId, token });
-      openScreen({ screenId: MONITOR_SCREEN_ID, params: { openAgent: token } });
-    },
-  });
-  const removePreviousCommand = client.addCommandCenterItem({
-    id: "cycle-previous-agent",
-    title: "Previous agent",
-    icon: "ChevronLeft",
-    keywords: ["previous", "cycle", "agent", "switch", "keyboard"],
-    context: "global",
-    onSelect({ openScreen }) {
-      const token = String(Date.now());
-      const target = stepCycle(-1);
-      if (!target) {
-        openScreen({ screenId: MONITOR_SCREEN_ID, params: { view: OVERVIEW_VIEW_PARAM } });
-        return;
-      }
-      requestAgentOpen({ agentId: target.agentId, serverId: target.serverId, token });
-      openScreen({ screenId: MONITOR_SCREEN_ID, params: { openAgent: token } });
-    },
-  });
-  const removeOverviewCommand = client.addCommandCenterItem({
-    id: "open-overview",
-    title: "Agent overview",
-    icon: "Grid",
-    keywords: ["overview", "switch", "mission control", "attention", "keyboard"],
-    context: "global",
-    onSelect({ openScreen }) {
-      openScreen({ screenId: MONITOR_SCREEN_ID, params: { view: OVERVIEW_VIEW_PARAM } });
-    },
-  });
-  const removeConfigureMonitor = client.addCommandCenterItem({
-    id: "configure-monitor",
-    title: "Configure agent monitor",
+  const removeConfigure = client.addCommandCenterItem({
+    id: "configure-inbox",
+    title: "Configure agent inbox",
     icon: "Settings",
-    keywords: ["settings", "preferences", "monitor"],
+    keywords: ["settings", "preferences", "inbox", "subagents"],
     context: "global",
     onSelect({ openSettings }) {
-      openSettings("monitor");
+      openSettings("inbox");
     },
   });
 
   return () => {
-    removeConfigureMonitor();
-    removePreviousCommand();
-    removeNextCommand();
-    removeOverviewCommand();
-    removeOpenMonitor();
+    removeConfigure();
+    removeOpenInbox();
     removeSidebarItem();
     removeScreen();
     removeSettings();

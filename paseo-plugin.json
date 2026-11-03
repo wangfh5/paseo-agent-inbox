@@ -1,6 +1,7 @@
 {
-  "id": "agent-monitor",
-  "description": "A Paseo plugin that provides a host-wide agent triage roster.",
+  "id": "agent-inbox",
+  "name": "Agent Inbox",
+  "description": "An agent-first inbox of top-level agents across all hosts, with Settle and Snooze.",
   "icon": "icon.png",
-  "requirements": { "paseo": "^0.13.0 || ^0.14.0 || ^0.15.0" }
+  "requirements": { "paseo": "^0.14.0" }
 }
