@@ -19,7 +19,6 @@ import {
   formatWake,
   type InboxItem,
   type InboxRow,
-  projectInitials,
   relativeAge,
   SECTION_TITLES,
   type Section,
@@ -37,7 +36,11 @@ import { useInbox } from "./use-inbox";
 
 const CLOCK_INTERVAL_MS = 15_000;
 const SETTLED_PREVIEW = 10;
+/** Single-column width, so rows never stretch across a wide window. */
 const COLUMN_MAX_WIDTH = 560;
+/** At this screen width and above, sections sit side by side in three columns. */
+const BOARD_MIN_WIDTH = 880;
+const BOARD_MAX_WIDTH = 1320;
 
 type InboxScreenProps = PluginSurfaceProps & {
   onOpenSettings(): void;
@@ -83,13 +86,21 @@ function useStyles(theme: Theme, compact: boolean) {
     return {
       gutter,
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
-      // A sidebar-width column: wide windows center it instead of stretching rows apart.
-      column: {
-        flex: 1,
-        width: "100%" as const,
-        maxWidth: COLUMN_MAX_WIDTH,
-        alignSelf: "center" as const,
+      container: { flex: 1, width: "100%" as const, alignSelf: "center" as const },
+      board: { flex: 1, flexDirection: "row" as const, gap: 8, paddingHorizontal: gutter / 2 },
+      boardColumn: { flex: 1, minWidth: 0, maxWidth: 440 },
+      boardContent: { paddingBottom: gutter },
+      columnHeader: {
+        ...row,
+        gap: 6,
+        paddingHorizontal: gutter / 2 + 8,
+        paddingTop: 6,
+        paddingBottom: 8,
       },
+      placeHost: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.2 },
+      placeProject: { color: theme.colors.foreground, fontSize: 12, fontWeight: "500" as const },
+      placeSep: { color: muted, fontSize: 12 },
+      placeWorkspace: { color: muted, fontSize: 12 },
       header: { ...row, gap: 8, paddingHorizontal: gutter, paddingTop: gutter, paddingBottom: 8 },
       searchBox: {
         ...row,
@@ -121,7 +132,7 @@ function useStyles(theme: Theme, compact: boolean) {
       },
       cardHovered: { backgroundColor: theme.colors.surface2 },
       cardTop: { ...row, gap: 8 },
-      cardPlace: { flex: 1, color: muted, fontSize: 12 },
+      cardPlace: { flex: 1, fontSize: 12 },
       cardTitle: { color: theme.colors.foreground, fontSize: 15, fontWeight: "600" as const },
       // Tall enough for the action buttons, so revealing them never resizes the card.
       cardBottom: { ...row, gap: 8, minHeight: 26 },
@@ -145,6 +156,7 @@ function useStyles(theme: Theme, compact: boolean) {
       sectionCount: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
       line: { ...row, gap: 10, minHeight: 38, paddingRight: 8, borderRadius: 8 },
       lineTitle: { flex: 1, color: theme.colors.foreground, fontSize: 14 },
+      lineProject: { color: muted, fontSize: 12 },
       lineHovered: { backgroundColor: theme.colors.surface1 },
       snoozeTime: { ...row, gap: 4 },
       snoozeText: {
@@ -152,14 +164,6 @@ function useStyles(theme: Theme, compact: boolean) {
         fontSize: 12,
         fontVariant: ["tabular-nums" as const],
       },
-      avatar: {
-        width: 22,
-        height: 22,
-        borderRadius: 6,
-        alignItems: "center" as const,
-        justifyContent: "center" as const,
-      },
-      avatarText: { fontSize: 9, fontWeight: "700" as const },
       actions: { ...row, gap: 2 },
       concealed: { opacity: 0 },
       action: {
@@ -189,20 +193,6 @@ function useStyles(theme: Theme, compact: boolean) {
 }
 
 type Styles = ReturnType<typeof useStyles>;
-
-function Avatar({ item, styles, dim }: { item: InboxItem; styles: Styles; dim: boolean }) {
-  const color = hostColor(item.host);
-  return (
-    <View
-      accessibilityLabel={item.host ? `Host ${item.host.label}` : undefined}
-      style={[styles.avatar, { backgroundColor: `${color}${dim ? "1A" : "33"}` }]}
-    >
-      <Text style={[styles.avatarText, { color, opacity: dim ? 0.75 : 1 }]}>
-        {projectInitials(item.entry.project.projectName)}
-      </Text>
-    </View>
-  );
-}
 
 /** A spinning loader; native driver only where it exists. */
 function Spinner({ color }: { color: string }) {
@@ -262,12 +252,12 @@ function InboxSections({
   const [needle, setNeedle] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
   const [snoozeMenu, setSnoozeMenu] = useState<string | null>(null);
-  const [open, setOpen] = useState<Record<Section, boolean>>({
-    attention: true,
-    working: true,
-    snoozed: false,
-    settled: false,
-  });
+  // Explicit toggles only; untouched sections use the layout's default (see isOpen).
+  const [open, setOpen] = useState<Partial<Record<Section, boolean>>>({});
+  const [width, setWidth] = useState(0);
+  const columns = !layout.compact && width >= BOARD_MIN_WIDTH;
+  // Stacked: Snoozed and Settled start collapsed. Columns: each has its own column, so open.
+  const isOpen = (section: Section) => open[section] ?? (columns || section === "working");
   const [showAllSettled, setShowAllSettled] = useState(false);
   const records = triage.records ?? {};
   const sections = useMemo(
@@ -325,14 +315,27 @@ function InboxSections({
     </Pressable>
   );
 
-  const placeOf = (item: InboxItem) => {
+  /** Host, project and workspace, each with its own weight so they read as three things. */
+  const place = (item: InboxItem) => {
     const { project } = item.entry;
     const workspace = project.workspaceName?.trim();
-    const scope =
-      workspace && workspace !== project.projectName
-        ? `${project.projectName}/${workspace}`
-        : project.projectName;
-    return multiHost && item.host ? `${item.host.label} · ${scope}` : scope;
+    return (
+      <Text style={styles.cardPlace} numberOfLines={1}>
+        {multiHost && item.host ? (
+          <Text style={[styles.placeHost, { color: hostColor(item.host) }]}>
+            {item.host.label}
+            {"   "}
+          </Text>
+        ) : null}
+        <Text style={styles.placeProject}>{project.projectName}</Text>
+        {workspace && workspace !== project.projectName ? (
+          <>
+            <Text style={styles.placeSep}>{"  /  "}</Text>
+            <Text style={styles.placeWorkspace}>{workspace}</Text>
+          </>
+        ) : null}
+      </Text>
+    );
   };
 
   const renderCard = ({ item, depth }: InboxRow, working: boolean) => {
@@ -376,10 +379,7 @@ function InboxSections({
           ]}
         >
           <View style={styles.cardTop}>
-            <Avatar item={item} styles={styles} dim={false} />
-            <Text style={styles.cardPlace} numberOfLines={1}>
-              {placeOf(item)}
-            </Text>
+            {place(item)}
             {working ? (
               <WorkingSince
                 since={workingSince(item)}
@@ -459,9 +459,12 @@ function InboxSections({
           pressed && styles.pressed,
         ]}
       >
-        <Avatar item={item} styles={styles} dim />
         <Text style={styles.lineTitle} numberOfLines={1}>
           {name}
+          <Text style={styles.lineProject}>
+            {"   "}
+            {item.entry.project.projectName}
+          </Text>
         </Text>
         {item.triage !== null ? (
           <View
@@ -488,15 +491,15 @@ function InboxSections({
   const header = (section: Exclude<Section, "attention">, count: number) => (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${open[section] ? "Collapse" : "Expand"} ${SECTION_TITLES[section]}`}
-      accessibilityState={{ expanded: open[section] }}
-      onPress={() => setOpen((current) => ({ ...current, [section]: !current[section] }))}
+      accessibilityLabel={`${isOpen(section) ? "Collapse" : "Expand"} ${SECTION_TITLES[section]}`}
+      accessibilityState={{ expanded: isOpen(section) }}
+      onPress={() => setOpen((current) => ({ ...current, [section]: !isOpen(section) }))}
       style={styles.sectionHeader}
     >
       <Text style={styles.sectionTitle}>{SECTION_TITLES[section]}</Text>
       <Text style={styles.sectionCount}>{count}</Text>
       <Icon
-        name={open[section] ? "ChevronDown" : "ChevronRight"}
+        name={isOpen(section) ? "ChevronDown" : "ChevronRight"}
         size={14}
         color={theme.colors.foregroundMuted}
       />
@@ -509,9 +512,51 @@ function InboxSections({
   const hiddenSettled = sections.settled.length - settledRows.length;
   const loading = inbox.items === null;
 
+  const workingCards = sections.working.map((row) => renderCard(row, true));
+  const snoozedBlock =
+    sections.snoozed.length > 0 ? (
+      <>
+        {header("snoozed", sections.snoozed.length)}
+        {isOpen("snoozed") ? sections.snoozed.map((row) => renderLine(row, "snoozed")) : null}
+      </>
+    ) : null;
+  const settledBlock =
+    sections.settled.length > 0 ? (
+      <>
+        {header("settled", sections.settled.length)}
+        {isOpen("settled") ? settledRows.map((row) => renderLine(row, "settled")) : null}
+        {isOpen("settled") && (hiddenSettled > 0 || showAllSettled) ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setShowAllSettled((current) => !current)}
+            style={styles.more}
+          >
+            <Icon
+              name={showAllSettled ? "ChevronUp" : "ChevronDown"}
+              size={14}
+              color={theme.colors.foregroundMuted}
+            />
+            <Text style={styles.moreText}>
+              {showAllSettled ? "Show less" : `Show ${hiddenSettled} more`}
+            </Text>
+          </Pressable>
+        ) : null}
+      </>
+    ) : null;
+  const empty = (text: string) => (loading ? null : <Text style={styles.empty}>{text}</Text>);
+  const column = (label: string, count: number, body: React.ReactNode) => (
+    <View style={styles.boardColumn}>
+      <View style={styles.columnHeader}>
+        <Text style={styles.sectionTitle}>{label}</Text>
+        <Text style={styles.sectionCount}>{count}</Text>
+      </View>
+      <ScrollView contentContainerStyle={styles.boardContent}>{body}</ScrollView>
+    </View>
+  );
+
   return (
-    <View style={styles.screen}>
-      <View style={styles.column}>
+    <View style={styles.screen} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      <View style={[styles.container, { maxWidth: columns ? BOARD_MAX_WIDTH : COLUMN_MAX_WIDTH }]}>
         <View style={styles.header}>
           <View style={styles.searchBox}>
             <Icon name="Search" size={15} color={theme.colors.foregroundMuted} />
@@ -551,45 +596,48 @@ function InboxSections({
           <Text style={styles.error}>{monitor.failedHosts.join(", ")} unreachable</Text>
         ) : null}
         {triage.problem ? <Text style={styles.error}>{triage.problem}</Text> : null}
-        <ScrollView contentContainerStyle={styles.content}>
-          {loading ? <Text style={styles.empty}>Loading agents…</Text> : null}
-          {sections.attention.map((row) => renderCard(row, false))}
-          <View style={styles.spacer} />
-          {sections.working.length > 0 ? (
-            <>
-              {header("working", sections.working.length)}
-              {open.working ? sections.working.map((row) => renderCard(row, true)) : null}
-            </>
-          ) : null}
-          {sections.snoozed.length > 0 ? (
-            <>
-              {header("snoozed", sections.snoozed.length)}
-              {open.snoozed ? sections.snoozed.map((row) => renderLine(row, "snoozed")) : null}
-            </>
-          ) : null}
-          {sections.settled.length > 0 ? (
-            <>
-              {header("settled", sections.settled.length)}
-              {open.settled ? settledRows.map((row) => renderLine(row, "settled")) : null}
-              {open.settled && (hiddenSettled > 0 || showAllSettled) ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setShowAllSettled((current) => !current)}
-                  style={styles.more}
-                >
-                  <Icon
-                    name={showAllSettled ? "ChevronUp" : "ChevronDown"}
-                    size={14}
-                    color={theme.colors.foregroundMuted}
-                  />
-                  <Text style={styles.moreText}>
-                    {showAllSettled ? "Show less" : `Show ${hiddenSettled} more`}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </>
-          ) : null}
-        </ScrollView>
+        {loading ? <Text style={styles.empty}>Loading agents…</Text> : null}
+        {columns ? (
+          <View style={styles.board}>
+            {column(
+              SECTION_TITLES.attention,
+              sections.attention.length,
+              sections.attention.length > 0
+                ? sections.attention.map((row) => renderCard(row, false))
+                : empty("Nothing needs attention"),
+            )}
+            {column(
+              SECTION_TITLES.working,
+              sections.working.length,
+              sections.working.length > 0 ? workingCards : empty("No agents working"),
+            )}
+            {column(
+              "Later",
+              sections.snoozed.length + sections.settled.length,
+              snoozedBlock || settledBlock ? (
+                <>
+                  {snoozedBlock}
+                  {settledBlock}
+                </>
+              ) : (
+                empty("Nothing snoozed or settled")
+              ),
+            )}
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.content}>
+            {sections.attention.map((row) => renderCard(row, false))}
+            <View style={styles.spacer} />
+            {sections.working.length > 0 ? (
+              <>
+                {header("working", sections.working.length)}
+                {isOpen("working") ? workingCards : null}
+              </>
+            ) : null}
+            {snoozedBlock}
+            {settledBlock}
+          </ScrollView>
+        )}
       </View>
     </View>
   );

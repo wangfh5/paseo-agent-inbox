@@ -6,7 +6,6 @@ import {
   formatWake,
   type InboxItem,
   orderRows,
-  projectInitials,
   relativeAge,
   type Section,
 } from "../client/inbox";
@@ -280,14 +279,6 @@ describe("sections", () => {
 });
 
 describe("row text helpers", () => {
-  test("project initials", () => {
-    expect(projectInitials("agent-settings")).toBe("AS");
-    expect(projectInitials("paseo")).toBe("PA");
-    expect(projectInitials("wangfh5/agent-settings")).toBe("WA");
-    expect(projectInitials("优化 FI Clash")).toBe("优");
-    expect(projectInitials("")).toBe("?");
-  });
-
   test("relative age reads now under a minute when asked", () => {
     expect(relativeAge(NOW - 30_000, NOW, true)).toBe("now");
     expect(relativeAge(NOW - 30_000, NOW, false)).toBe("30s");

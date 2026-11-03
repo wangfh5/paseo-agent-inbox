@@ -234,15 +234,3 @@ export function relativeAge(from: number, to: number, nowBelowMinute: boolean): 
   if (nowBelowMinute && to - from < 60_000) return "now";
   return age(from, to);
 }
-
-/** Two-letter project badge: "agent-settings" → "AS", "paseo" → "PA", "优化项目" → "优". */
-export function projectInitials(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return "?";
-  const first = trimmed.codePointAt(0) ?? 0;
-  if (first > 0x2e7f) return String.fromCodePoint(first);
-  const words = trimmed.split(/[\s\-_./·]+/).filter((word) => /^[A-Za-z0-9]/.test(word));
-  if (words.length >= 2) return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toUpperCase();
-  const word = words[0] ?? trimmed;
-  return word.slice(0, 2).toUpperCase();
-}
