@@ -17,6 +17,11 @@ export type MonitorData = {
   entries: AgentEntry[];
   /** True when the agent list hit the page cap, so the roster is a prefix of the host's agents. */
   truncated: boolean;
+  /**
+   * Ids of the host's active (unarchived) workspaces, or null when they could not be listed in
+   * full. Archived workspaces are absent from the workspace list.
+   */
+  activeWorkspaceIds?: ReadonlySet<string> | null;
 };
 
 export async function loadAgents(
@@ -35,6 +40,36 @@ export async function loadAgents(
     if (!cursor) return { entries, truncated: false };
   }
   return { entries, truncated: true };
+}
+
+/** Every active workspace id, or null when the list failed or hit the page cap. */
+export async function loadActiveWorkspaceIds(paseo: PaseoApi): Promise<Set<string> | null> {
+  const ids = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const result = await paseo.workspaces.list({
+      includeBackground: true,
+      page: { limit: PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
+    });
+    for (const workspace of result.entries) ids.add(workspace.id);
+    cursor = result.pageInfo.hasMore ? (result.pageInfo.nextCursor ?? undefined) : undefined;
+    if (!cursor) return ids;
+  }
+  return null;
+}
+
+/**
+ * True when the agent belongs to a workspace that is no longer active. Archiving a workspace
+ * normally archives its agents too, but agents can survive it; Paseo's own sidebar hides them and
+ * opening one reports the workspace as archived. Without a trustworthy workspace list, or without
+ * a workspace id on the agent, nothing is hidden.
+ */
+export function inArchivedWorkspace(
+  entry: AgentEntry,
+  activeWorkspaceIds: ReadonlySet<string> | null | undefined,
+): boolean {
+  const workspaceId = entry.agent.workspaceId;
+  return Boolean(activeWorkspaceIds && workspaceId && !activeWorkspaceIds.has(workspaceId));
 }
 
 export type MultiHostMonitor = {
@@ -66,10 +101,18 @@ function clientFor(serverId: string): PaseoApi | null {
 async function loadHostAgents(host: HostScope): Promise<MonitorData> {
   const client = clientFor(host.serverId);
   if (!client) throw new Error(`host ${host.label} is not available`);
-  return loadAgents(client);
+  const [agents, activeWorkspaceIds] = await Promise.all([
+    loadAgents(client),
+    // A failed workspace list must not hide the host's agents: fall back to no filtering.
+    loadActiveWorkspaceIds(client).catch(() => null),
+  ]);
+  return { ...agents, activeWorkspaceIds };
 }
 
-/** Merge per-host agent lists, tagging each entry with the host it came from. */
+/**
+ * Merge per-host agent lists, tagging each entry with the host it came from. Agents of archived
+ * workspaces are dropped like archived agents, so their triage records are pruned too.
+ */
 export function mergeHostAgents(loaded: ReadonlyArray<{ host: HostScope; data: MonitorData }>): {
   entries: AgentEntry[];
   truncated: boolean;
@@ -79,7 +122,10 @@ export function mergeHostAgents(loaded: ReadonlyArray<{ host: HostScope; data: M
   const completeHosts: string[] = [];
   let truncated = false;
   for (const { host, data } of loaded) {
-    for (const entry of data.entries) entries.push(withHostScope(entry, host));
+    for (const entry of data.entries) {
+      if (!inArchivedWorkspace(entry, data.activeWorkspaceIds))
+        entries.push(withHostScope(entry, host));
+    }
     truncated = truncated || data.truncated;
     if (!data.truncated) completeHosts.push(host.serverId);
   }

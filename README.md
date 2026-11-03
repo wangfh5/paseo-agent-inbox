@@ -9,7 +9,7 @@ Forked from [omercnet's Agent Monitor](https://github.com/omercnet/paseo-plugins
 - **All hosts, one list.** Every online host is listed and merged. Each agent is identified by `serverId/agentId`, so the same title or id on two hosts never collides. A host that fails or goes offline is reported and skipped; the other hosts keep working.
 - **Subagents hidden by default.** An agent is a subagent when its own metadata names a parent (`parentAgentId` on 0.15, the `paseo.parent-agent-id` / `paseo.parent-server-id` labels on 0.14). That holds for nested, cross-workspace and cross-host children, and for children whose parent is offline or archived. Detaching removes those labels, so a detached agent shows up as top level. Agents without parent metadata are always shown; titles are never used. The list, chips, search, sidebar badge and popover all derive from the same item set.
 - **Views:** Needs attention · Running · Idle · All, plus Settled / Snoozed when non-empty. Optional host filter (default All hosts), sort (Triage / Recent / Title), and search.
-- **States follow Paseo's own classification** (`deriveAgentStateBucket`): a pending permission or an error is attention; running and initializing are running; otherwise the native `requiresAttention` flag (finished unread) is attention; the rest is idle. `closed` means the runtime was released but the agent is resumable, so it counts as idle (or attention when it finished unread), never as archived. Archived agents are not listed.
+- **States follow Paseo's own classification** (`deriveAgentStateBucket`): a pending permission or an error is attention; running and initializing are running; otherwise the native `requiresAttention` flag (finished unread) is attention; the rest is idle. `closed` means the runtime was released but the agent is resumable, so it counts as idle (or attention when it finished unread), never as archived. Archived agents are not listed, nor are agents whose workspace was archived (they can outlive the workspace archive; Paseo's own sidebar hides them too). That check is skipped for a host whose workspace list fails or is truncated, and for agents without a workspace id.
 
 ## Settle and Snooze
 
@@ -92,6 +92,6 @@ paseo daemon stop --home $W/home
 - Settle and Snooze are added, with their own `triage` settings document.
 - Attention follows Paseo's native order: an unread finished `closed` agent is attention, where Agent Monitor files it under Closed.
 - Removed: Graph view, Overview / mission control, project / workspace / host / provider grouping, diff stats, pin markers, density, keyboard shortcuts, next/previous cycling, and archive actions (single and bulk). The inbox performs no lifecycle action at all.
-- Workspace and project directories are no longer loaded; rows read placement from each agent entry. That means fewer requests per refresh.
+- Only active workspace ids are loaded (to drop agents of archived workspaces); the project registry and workspace details are not. Rows read placement from each agent entry.
 - Row identity is `serverId/agentId` (Agent Monitor keyed rows by agent id alone).
 - Plugin id `agent-inbox`; preferences document `inbox` (`showSubagents`, `agentSort`, `showPlacement`, `defaultView`).
