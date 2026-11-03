@@ -52,13 +52,15 @@ The records live in a host-scoped Paseo settings document (`triage`) of the host
 
 Requires Paseo 0.14. Plugins are trusted, unsandboxed code. Plugins must be enabled on the target daemon (`"pluginsEnabled": true` in its `config.json`, then `paseo daemon reload`).
 
-From GitHub:
+From the [Paseo plugin registry](https://paseo.sh/plugins/wangfh5/agent-inbox), which installs the reviewed version:
 
 ```sh
-paseo plugin install git:wangfh5/paseo-agent-inbox                       # local daemon
-paseo plugin install git:wangfh5/paseo-agent-inbox --host <host:port>    # or another host
+paseo plugin add wangfh5/agent-inbox                       # local daemon
+paseo plugin add wangfh5/agent-inbox --host <host:port>    # or another host
 paseo plugin ls
 ```
+
+Or straight from GitHub, which follows `main`: `paseo plugin install git:wangfh5/paseo-agent-inbox`.
 
 Or from a local checkout, which is handy while editing:
 
@@ -73,7 +75,7 @@ Install it on one host (see [Storage](#storage)). No runtime dependencies are ne
 
 It installs as `agent-inbox`, separate from `agent-monitor`, so both can run side by side.
 
-- **Update:** a Git install updates with `paseo plugin update agent-inbox`; a local checkout picks up changes with `paseo plugin reload agent-inbox`. A failed reload stays failed; fix and reload again.
+- **Update:** registry and Git installs update with `paseo plugin update agent-inbox`; a local checkout picks up changes with `paseo plugin reload agent-inbox`. A failed reload stays failed; fix and reload again.
 - **Disable / roll back:** `paseo plugin disable agent-inbox`, or `paseo plugin remove agent-inbox`. Removing deletes its settings and triage documents; the source directory is never deleted. Agent Monitor is unaffected either way.
 
 ## Development
