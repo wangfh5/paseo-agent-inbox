@@ -24,7 +24,6 @@ import { peekAgentOpen, takeAgentOpen } from "./focus-request";
 import {
   activityAt,
   buildSections,
-  formatWake,
   type InboxItem,
   type InboxRow,
   relativeAge,
@@ -32,7 +31,7 @@ import {
   type Section,
   stateLabel,
 } from "./inbox";
-import { delegatedFromServerId, hostColor, title } from "./monitor";
+import { delegatedFromServerId, title } from "./monitor";
 import { CustomSnoozeModal, SnoozeMenu } from "./snooze-menu";
 import { settleRecord, snoozeRecord } from "./triage";
 import { useInbox } from "./use-inbox";
