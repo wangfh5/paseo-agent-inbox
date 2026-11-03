@@ -50,19 +50,28 @@ The records live in a host-scoped Paseo settings document (`triage`) of the host
 
 Requires Paseo 0.14. Plugins are trusted, unsandboxed code. Plugins must be enabled on the target daemon (`"pluginsEnabled": true` in its `config.json`, then `paseo daemon reload`).
 
-```sh
-cd ~/Sync/infra/paseo-agents-monitor
-npm install          # dev dependencies, for checks only
-npm run typecheck && npm test
+From GitHub:
 
-paseo plugin install ~/Sync/infra/paseo-agents-monitor            # local daemon
-paseo plugin install ~/Sync/infra/paseo-agents-monitor --host <host:port>   # or another host
+```sh
+paseo plugin install git:wangfh5/paseo-agent-inbox                       # local daemon
+paseo plugin install git:wangfh5/paseo-agent-inbox --host <host:port>    # or another host
 paseo plugin ls
 ```
 
+Or from a local checkout, which is handy while editing:
+
+```sh
+git clone https://github.com/wangfh5/paseo-agent-inbox.git
+cd paseo-agent-inbox
+npm install && npm run typecheck && npm test   # dev dependencies, for checks only
+paseo plugin install "$PWD"
+```
+
+Install it on one host (see [Storage](#storage)). No runtime dependencies are needed: Paseo provides the SDK, React, React Native and zod.
+
 It installs as `agent-inbox`, separate from `agent-monitor`, so both can run side by side.
 
-- **Update** after pulling changes: `paseo plugin reload agent-inbox`. A failed reload stays failed; fix and reload again.
+- **Update:** a Git install updates with `paseo plugin update agent-inbox`; a local checkout picks up changes with `paseo plugin reload agent-inbox`. A failed reload stays failed; fix and reload again.
 - **Disable / roll back:** `paseo plugin disable agent-inbox`, or `paseo plugin remove agent-inbox`. Removing deletes its settings and triage documents; the source directory is never deleted. Agent Monitor is unaffected either way.
 
 ## Development

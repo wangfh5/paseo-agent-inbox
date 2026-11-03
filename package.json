@@ -9,6 +9,14 @@
   "contributors": [
     "Omer Cohen (original Agent Monitor, https://github.com/omercnet/paseo-plugins)"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wangfh5/paseo-agent-inbox.git"
+  },
+  "homepage": "https://github.com/wangfh5/paseo-agent-inbox#readme",
+  "bugs": {
+    "url": "https://github.com/wangfh5/paseo-agent-inbox/issues"
+  },
   "keywords": [
     "paseo",
     "paseo-plugin",
