@@ -83,6 +83,8 @@ function useStyles(theme: Theme, compact: boolean) {
     const gutter = compact ? 10 : 14;
     const muted = theme.colors.foregroundMuted;
     const row = { flexDirection: "row" as const, alignItems: "center" as const };
+    // One text inset for everything inside a column: headers, card content, rows, hints.
+    const inset = 12;
     return {
       gutter,
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
@@ -93,7 +95,7 @@ function useStyles(theme: Theme, compact: boolean) {
       columnHeader: {
         ...row,
         gap: 6,
-        paddingHorizontal: gutter / 2 + 8,
+        paddingHorizontal: inset,
         paddingTop: 6,
         paddingBottom: 8,
       },
@@ -101,7 +103,14 @@ function useStyles(theme: Theme, compact: boolean) {
       placeProject: { color: theme.colors.foreground, fontSize: 12, fontWeight: "500" as const },
       placeSep: { color: muted, fontSize: 12 },
       placeWorkspace: { color: muted, fontSize: 12 },
-      header: { ...row, gap: 8, paddingHorizontal: gutter, paddingTop: gutter, paddingBottom: 8 },
+      // Same outer edge as the columns and cards below.
+      header: {
+        ...row,
+        gap: 8,
+        paddingHorizontal: gutter / 2,
+        paddingTop: gutter,
+        paddingBottom: 8,
+      },
       searchBox: {
         ...row,
         flex: 1,
@@ -122,9 +131,8 @@ function useStyles(theme: Theme, compact: boolean) {
       content: { flexGrow: 1, paddingHorizontal: gutter / 2, paddingBottom: gutter },
       spacer: { flexGrow: 1, minHeight: 20 },
       card: {
-        marginHorizontal: gutter / 2,
         marginBottom: 6,
-        paddingHorizontal: 12,
+        paddingHorizontal: inset,
         paddingVertical: 10,
         borderRadius: 10,
         gap: 4,
@@ -148,13 +156,16 @@ function useStyles(theme: Theme, compact: boolean) {
       sectionHeader: {
         ...row,
         gap: 6,
-        paddingHorizontal: gutter / 2 + 8,
+        paddingHorizontal: inset,
         paddingTop: 14,
         paddingBottom: 6,
       },
       sectionTitle: { flex: 1, color: muted, fontSize: 13, fontWeight: "600" as const },
       sectionCount: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
-      line: { ...row, gap: 10, minHeight: 38, paddingRight: 8, borderRadius: 8 },
+      line: { ...row, gap: 10, minHeight: 38, paddingRight: inset, borderRadius: 8 },
+      lineInset: inset,
+      // Stands in for a section's chevron so column counts line up with section counts.
+      chevronSlot: { width: 14 },
       lineTitle: { flex: 1, color: theme.colors.foreground, fontSize: 14 },
       lineProject: { color: muted, fontSize: 12 },
       lineHovered: { backgroundColor: theme.colors.surface1 },
@@ -184,10 +195,14 @@ function useStyles(theme: Theme, compact: boolean) {
         justifyContent: "center" as const,
       },
       menuText: { color: theme.colors.foreground, fontSize: 12 },
-      more: { ...row, gap: 6, paddingVertical: 8, paddingHorizontal: 8 },
+      more: { ...row, gap: 6, paddingVertical: 8, paddingHorizontal: inset },
       moreText: { color: muted, fontSize: 13 },
-      empty: { color: muted, fontSize: 13, paddingHorizontal: gutter, paddingVertical: 8 },
-      error: { color: theme.colors.statusDanger, fontSize: 12, paddingHorizontal: gutter },
+      empty: { color: muted, fontSize: 13, paddingHorizontal: inset, paddingVertical: 8 },
+      error: {
+        color: theme.colors.statusDanger,
+        fontSize: 12,
+        paddingHorizontal: gutter / 2 + inset,
+      },
     };
   }, [compact, theme]);
 }
@@ -454,7 +469,7 @@ function InboxSections({
         onHoverOut={() => setHovered((current) => (current === item.key ? null : current))}
         style={({ pressed }) => [
           styles.line,
-          { paddingLeft: 8 + depth * 14 },
+          { paddingLeft: styles.lineInset + depth * 14 },
           isHovered && styles.lineHovered,
           pressed && styles.pressed,
         ]}
@@ -513,19 +528,23 @@ function InboxSections({
   const loading = inbox.items === null;
 
   const workingCards = sections.working.map((row) => renderCard(row, true));
-  const snoozedBlock =
+  // A block without its header is always open: its column header already names it.
+  const snoozedBlock = (withHeader: boolean) =>
     sections.snoozed.length > 0 ? (
       <>
-        {header("snoozed", sections.snoozed.length)}
-        {isOpen("snoozed") ? sections.snoozed.map((row) => renderLine(row, "snoozed")) : null}
+        {withHeader ? header("snoozed", sections.snoozed.length) : null}
+        {!withHeader || isOpen("snoozed")
+          ? sections.snoozed.map((row) => renderLine(row, "snoozed"))
+          : null}
       </>
     ) : null;
-  const settledBlock =
+  const settledOpen = (withHeader: boolean) => !withHeader || isOpen("settled");
+  const settledBlock = (withHeader: boolean) =>
     sections.settled.length > 0 ? (
       <>
-        {header("settled", sections.settled.length)}
-        {isOpen("settled") ? settledRows.map((row) => renderLine(row, "settled")) : null}
-        {isOpen("settled") && (hiddenSettled > 0 || showAllSettled) ? (
+        {withHeader ? header("settled", sections.settled.length) : null}
+        {settledOpen(withHeader) ? settledRows.map((row) => renderLine(row, "settled")) : null}
+        {settledOpen(withHeader) && (hiddenSettled > 0 || showAllSettled) ? (
           <Pressable
             accessibilityRole="button"
             onPress={() => setShowAllSettled((current) => !current)}
@@ -543,12 +562,20 @@ function InboxSections({
         ) : null}
       </>
     ) : null;
+  // The Later column is named after what it holds; sub-headers only when it holds both.
+  const bothLater = sections.snoozed.length > 0 && sections.settled.length > 0;
+  const laterTitle = bothLater
+    ? "Later"
+    : sections.snoozed.length > 0
+      ? SECTION_TITLES.snoozed
+      : SECTION_TITLES.settled;
   const empty = (text: string) => (loading ? null : <Text style={styles.empty}>{text}</Text>);
   const column = (label: string, count: number, body: React.ReactNode) => (
     <View style={styles.boardColumn}>
       <View style={styles.columnHeader}>
         <Text style={styles.sectionTitle}>{label}</Text>
         <Text style={styles.sectionCount}>{count}</Text>
+        <View style={styles.chevronSlot} />
       </View>
       <ScrollView contentContainerStyle={styles.boardContent}>{body}</ScrollView>
     </View>
@@ -612,15 +639,15 @@ function InboxSections({
               sections.working.length > 0 ? workingCards : empty("No agents working"),
             )}
             {column(
-              "Later",
+              laterTitle,
               sections.snoozed.length + sections.settled.length,
-              snoozedBlock || settledBlock ? (
+              bothLater ? (
                 <>
-                  {snoozedBlock}
-                  {settledBlock}
+                  {snoozedBlock(true)}
+                  {settledBlock(true)}
                 </>
               ) : (
-                empty("Nothing snoozed or settled")
+                (snoozedBlock(false) ?? settledBlock(false) ?? empty("Nothing snoozed or settled"))
               ),
             )}
           </View>
@@ -634,8 +661,8 @@ function InboxSections({
                 {isOpen("working") ? workingCards : null}
               </>
             ) : null}
-            {snoozedBlock}
-            {settledBlock}
+            {snoozedBlock(true)}
+            {settledBlock(true)}
           </ScrollView>
         )}
       </View>
