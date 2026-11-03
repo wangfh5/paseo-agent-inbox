@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A Paseo plugin: an agent-first, cross-host inbox of top-level agents with Settle and Snooze. Forked from omercnet's Agent Monitor.",
+  "description": "One inbox for the top-level agents on every connected host, with Settle and Snooze.",
   "license": "MIT",
   "author": "Fohong Wang (https://github.com/wangfh5)",
   "contributors": [
@@ -32,7 +32,9 @@
     "icon.png",
     "README.md",
     "LICENSE",
-    "OVERVIEW.md"
+    "OVERVIEW.md",
+    "OVERVIEW.zh-CN.md",
+    "docs"
   ],
   "engines": {
     "node": ">=22"

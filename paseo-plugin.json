@@ -1,7 +1,13 @@
 {
   "id": "agent-inbox",
-  "name": "Agent Inbox",
-  "description": "An agent-first inbox of top-level agents across all hosts, with Settle and Snooze.",
+  "name": "Agent inbox",
+  "description": "One inbox for the top-level agents on every connected host, with Settle and Snooze.",
+  "translations": {
+    "zh-CN": {
+      "name": "Agent 收件箱",
+      "description": "把所有已连接主机上的顶层 agent 汇总到一个收件箱，支持 Settle 和 Snooze。"
+    }
+  },
   "icon": "icon.png",
-  "requirements": { "paseo": "^0.14.0" }
+  "requirements": { "paseo": ">=0.14.0" }
 }
