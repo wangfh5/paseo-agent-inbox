@@ -1,6 +1,14 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Animated,
   Easing,
@@ -35,7 +43,6 @@ import {
 import { useInbox } from "./use-inbox";
 
 const CLOCK_INTERVAL_MS = 15_000;
-const SETTLED_PREVIEW = 10;
 /** Single-column width, so rows never stretch across a wide window. */
 const COLUMN_MAX_WIDTH = 560;
 /** At this screen width and above, sections sit side by side in three columns. */
@@ -153,9 +160,11 @@ function useStyles(theme: Theme, compact: boolean) {
         fontWeight: "600" as const,
         fontVariant: ["tabular-nums" as const],
       },
+      // Opaque, because section headers stick to the top of their scroll view.
       sectionHeader: {
         ...row,
         gap: 6,
+        backgroundColor: theme.colors.surface0,
         paddingHorizontal: inset,
         paddingTop: 14,
         paddingBottom: 6,
@@ -164,8 +173,6 @@ function useStyles(theme: Theme, compact: boolean) {
       sectionCount: { color: muted, fontSize: 12, fontVariant: ["tabular-nums" as const] },
       line: { ...row, gap: 10, minHeight: 38, paddingRight: inset, borderRadius: 8 },
       lineInset: inset,
-      // Stands in for a section's chevron so column counts line up with section counts.
-      chevronSlot: { width: 14 },
       lineTitle: { flex: 1, color: theme.colors.foreground, fontSize: 14 },
       lineProject: { color: muted, fontSize: 12 },
       lineHovered: { backgroundColor: theme.colors.surface1 },
@@ -195,8 +202,6 @@ function useStyles(theme: Theme, compact: boolean) {
         justifyContent: "center" as const,
       },
       menuText: { color: theme.colors.foreground, fontSize: 12 },
-      more: { ...row, gap: 6, paddingVertical: 8, paddingHorizontal: inset },
-      moreText: { color: muted, fontSize: 13 },
       empty: { color: muted, fontSize: 13, paddingHorizontal: inset, paddingVertical: 8 },
       error: {
         color: theme.colors.statusDanger,
@@ -268,12 +273,14 @@ function InboxSections({
   const [hovered, setHovered] = useState<string | null>(null);
   const [snoozeMenu, setSnoozeMenu] = useState<string | null>(null);
   // Explicit toggles only; untouched sections use the layout's default (see isOpen).
-  const [open, setOpen] = useState<Partial<Record<Section, boolean>>>({});
+  const [open, setOpen] = useState<Partial<Record<Section | "later", boolean>>>({});
   const [width, setWidth] = useState(0);
   const columns = !layout.compact && width >= BOARD_MIN_WIDTH;
   // Stacked: Snoozed and Settled start collapsed. Columns: each has its own column, so open.
-  const isOpen = (section: Section) => open[section] ?? (columns || section === "working");
-  const [showAllSettled, setShowAllSettled] = useState(false);
+  const isOpen = (section: Section | "later") =>
+    open[section] ?? (columns || section === "working");
+  const toggle = (section: Section | "later") =>
+    setOpen((current) => ({ ...current, [section]: !isOpen(section) }));
   const records = triage.records ?? {};
   const sections = useMemo(
     () => buildSections(inbox.items ?? [], records, needle),
@@ -503,83 +510,101 @@ function InboxSections({
     );
   };
 
-  const header = (section: Exclude<Section, "attention">, count: number) => (
+  /** A collapsible header; sticks to the top of its scroll view, so collapsing is always one tap away. */
+  const header = (key: Section | "later", label: string, count: number, column = false) => (
     <Pressable
+      key={`header-${key}`}
       accessibilityRole="button"
-      accessibilityLabel={`${isOpen(section) ? "Collapse" : "Expand"} ${SECTION_TITLES[section]}`}
-      accessibilityState={{ expanded: isOpen(section) }}
-      onPress={() => setOpen((current) => ({ ...current, [section]: !isOpen(section) }))}
-      style={styles.sectionHeader}
+      accessibilityLabel={`${isOpen(key) ? "Collapse" : "Expand"} ${label}`}
+      accessibilityState={{ expanded: isOpen(key) }}
+      onPress={() => toggle(key)}
+      style={column ? styles.columnHeader : styles.sectionHeader}
     >
-      <Text style={styles.sectionTitle}>{SECTION_TITLES[section]}</Text>
+      <Text style={styles.sectionTitle}>{label}</Text>
       <Text style={styles.sectionCount}>{count}</Text>
       <Icon
-        name={isOpen(section) ? "ChevronDown" : "ChevronRight"}
+        name={isOpen(key) ? "ChevronDown" : "ChevronRight"}
         size={14}
         color={theme.colors.foregroundMuted}
       />
     </Pressable>
   );
 
-  const settledRows = showAllSettled
-    ? sections.settled
-    : sections.settled.slice(0, SETTLED_PREVIEW);
-  const hiddenSettled = sections.settled.length - settledRows.length;
-  const loading = inbox.items === null;
+  /**
+   * Flat children for a ScrollView plus the indices of its headers, which React Native needs as
+   * direct children to make them sticky. Collapsed sections keep their header only.
+   */
+  const stack = (
+    parts: Array<{ key: Section; rows: ReactNode[] } | ReactNode>,
+  ): { children: ReactNode[]; sticky: number[] } => {
+    const children: ReactNode[] = [];
+    const sticky: number[] = [];
+    for (const part of parts) {
+      if (part && typeof part === "object" && "rows" in part && "key" in part) {
+        const { key, rows } = part as { key: Section; rows: ReactNode[] };
+        if (rows.length === 0) continue;
+        sticky.push(children.length);
+        children.push(header(key, SECTION_TITLES[key], rows.length));
+        if (isOpen(key)) children.push(...rows);
+      } else if (part) {
+        children.push(part);
+      }
+    }
+    return { children, sticky };
+  };
 
+  const loading = inbox.items === null;
+  const attentionCards = sections.attention.map((row) => renderCard(row, false));
   const workingCards = sections.working.map((row) => renderCard(row, true));
-  // A block without its header is always open: its column header already names it.
-  const snoozedBlock = (withHeader: boolean) =>
-    sections.snoozed.length > 0 ? (
-      <>
-        {withHeader ? header("snoozed", sections.snoozed.length) : null}
-        {!withHeader || isOpen("snoozed")
-          ? sections.snoozed.map((row) => renderLine(row, "snoozed"))
-          : null}
-      </>
-    ) : null;
-  const settledOpen = (withHeader: boolean) => !withHeader || isOpen("settled");
-  const settledBlock = (withHeader: boolean) =>
-    sections.settled.length > 0 ? (
-      <>
-        {withHeader ? header("settled", sections.settled.length) : null}
-        {settledOpen(withHeader) ? settledRows.map((row) => renderLine(row, "settled")) : null}
-        {settledOpen(withHeader) && (hiddenSettled > 0 || showAllSettled) ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setShowAllSettled((current) => !current)}
-            style={styles.more}
-          >
-            <Icon
-              name={showAllSettled ? "ChevronUp" : "ChevronDown"}
-              size={14}
-              color={theme.colors.foregroundMuted}
-            />
-            <Text style={styles.moreText}>
-              {showAllSettled ? "Show less" : `Show ${hiddenSettled} more`}
-            </Text>
-          </Pressable>
-        ) : null}
-      </>
-    ) : null;
+  const snoozedRows = sections.snoozed.map((row) => renderLine(row, "snoozed"));
+  const settledRows = sections.settled.map((row) => renderLine(row, "settled"));
   // The Later column is named after what it holds; sub-headers only when it holds both.
-  const bothLater = sections.snoozed.length > 0 && sections.settled.length > 0;
-  const laterTitle = bothLater
-    ? "Later"
-    : sections.snoozed.length > 0
-      ? SECTION_TITLES.snoozed
-      : SECTION_TITLES.settled;
-  const empty = (text: string) => (loading ? null : <Text style={styles.empty}>{text}</Text>);
-  const column = (label: string, count: number, body: React.ReactNode) => (
+  const bothLater = snoozedRows.length > 0 && settledRows.length > 0;
+  const laterKey: Section | "later" = bothLater
+    ? "later"
+    : snoozedRows.length > 0
+      ? "snoozed"
+      : "settled";
+  const laterTitle = laterKey === "later" ? "Later" : SECTION_TITLES[laterKey];
+  const empty = (text: string) =>
+    loading ? null : (
+      <Text key="empty" style={styles.empty}>
+        {text}
+      </Text>
+    );
+
+  const column = (
+    key: Section | "later",
+    label: string,
+    count: number,
+    content: { children: ReactNode[]; sticky: number[] },
+    emptyText: string,
+  ) => (
     <View style={styles.boardColumn}>
-      <View style={styles.columnHeader}>
-        <Text style={styles.sectionTitle}>{label}</Text>
-        <Text style={styles.sectionCount}>{count}</Text>
-        <View style={styles.chevronSlot} />
-      </View>
-      <ScrollView contentContainerStyle={styles.boardContent}>{body}</ScrollView>
+      {header(key, label, count, true)}
+      {isOpen(key) ? (
+        <ScrollView
+          contentContainerStyle={styles.boardContent}
+          stickyHeaderIndices={content.sticky}
+        >
+          {content.children.length > 0 ? content.children : empty(emptyText)}
+        </ScrollView>
+      ) : null}
     </View>
   );
+  const laterContent = bothLater
+    ? stack([
+        { key: "snoozed", rows: snoozedRows },
+        { key: "settled", rows: settledRows },
+      ])
+    : { children: [...snoozedRows, ...settledRows], sticky: [] };
+  const stacked = stack([
+    ...attentionCards,
+    <View key="spacer" style={styles.spacer} />,
+    { key: "working", rows: workingCards },
+    { key: "snoozed", rows: snoozedRows },
+    { key: "settled", rows: settledRows },
+  ]);
 
   return (
     <View style={styles.screen} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
@@ -627,42 +652,30 @@ function InboxSections({
         {columns ? (
           <View style={styles.board}>
             {column(
+              "attention",
               SECTION_TITLES.attention,
-              sections.attention.length,
-              sections.attention.length > 0
-                ? sections.attention.map((row) => renderCard(row, false))
-                : empty("Nothing needs attention"),
+              attentionCards.length,
+              { children: attentionCards, sticky: [] },
+              "Nothing needs attention",
             )}
             {column(
+              "working",
               SECTION_TITLES.working,
-              sections.working.length,
-              sections.working.length > 0 ? workingCards : empty("No agents working"),
+              workingCards.length,
+              { children: workingCards, sticky: [] },
+              "No agents working",
             )}
             {column(
+              laterKey,
               laterTitle,
-              sections.snoozed.length + sections.settled.length,
-              bothLater ? (
-                <>
-                  {snoozedBlock(true)}
-                  {settledBlock(true)}
-                </>
-              ) : (
-                (snoozedBlock(false) ?? settledBlock(false) ?? empty("Nothing snoozed or settled"))
-              ),
+              snoozedRows.length + settledRows.length,
+              laterContent,
+              "Nothing snoozed or settled",
             )}
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.content}>
-            {sections.attention.map((row) => renderCard(row, false))}
-            <View style={styles.spacer} />
-            {sections.working.length > 0 ? (
-              <>
-                {header("working", sections.working.length)}
-                {isOpen("working") ? workingCards : null}
-              </>
-            ) : null}
-            {snoozedBlock(true)}
-            {settledBlock(true)}
+          <ScrollView contentContainerStyle={styles.content} stickyHeaderIndices={stacked.sticky}>
+            {stacked.children}
           </ScrollView>
         )}
       </View>
