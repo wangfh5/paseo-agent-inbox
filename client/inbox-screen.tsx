@@ -93,6 +93,8 @@ function useStyles(theme: Theme, compact: boolean) {
       board: { flex: 1, flexDirection: "row" as const, gap: 8, paddingHorizontal: gutter / 2 },
       boardColumn: { flex: 1, minWidth: 0, maxWidth: 440 },
       boardContent: { paddingBottom: gutter },
+      paneFill: { flex: 1 },
+      paneShort: { flexGrow: 0, maxHeight: 240, marginBottom: 8 },
       columnHeader: {
         ...row,
         gap: 6,
@@ -181,7 +183,7 @@ function useStyles(theme: Theme, compact: boolean) {
       line: { ...row, gap: 6, minHeight: 34, paddingRight: inset, borderRadius: 8 },
       linePress: { ...row, flex: 1, gap: 8, alignSelf: "stretch" as const },
       lineInset: inset,
-      // Rows in Later are done or parked: quieter than headers and cards until hovered.
+      // Snoozed and Settled rows are parked or done: quieter than headers and cards until hovered.
       lineTitle: { flex: 1, color: muted, fontSize: 14 },
       lineTitleHovered: { color: theme.colors.foreground },
       lineGlyph: {
@@ -287,13 +289,12 @@ function InboxSections({
   const [hovered, setHovered] = useState<string | null>(null);
   const [snoozeMenu, setSnoozeMenu] = useState<string | null>(null);
   // Explicit toggles only; untouched sections use the layout's default (see isOpen).
-  const [open, setOpen] = useState<Partial<Record<Section | "later", boolean>>>({});
+  const [open, setOpen] = useState<Partial<Record<Section, boolean>>>({});
   const [width, setWidth] = useState(0);
   const columns = !layout.compact && width >= BOARD_MIN_WIDTH;
   // Stacked: Snoozed and Settled start collapsed. Columns: each has its own column, so open.
-  const isOpen = (section: Section | "later") =>
-    open[section] ?? (columns || section === "working");
-  const toggle = (section: Section | "later") =>
+  const isOpen = (section: Section) => open[section] ?? (columns || section === "working");
+  const toggle = (section: Section) =>
     setOpen((current) => ({ ...current, [section]: !isOpen(section) }));
   const records = triage.records ?? {};
   const sections = useMemo(
@@ -539,7 +540,7 @@ function InboxSections({
   };
 
   /** A collapsible header; sticks to the top of its scroll view, so collapsing is always one tap away. */
-  const header = (key: Section | "later", label: string, count: number, column = false) => (
+  const header = (key: Section, label: string, count: number, column = false) => (
     // On native, a sticky header is cloned with its style replaced, so the outer View only
     // takes that replacement; the row layout lives on the Pressable inside.
     <View key={`header-${key}`}>
@@ -591,14 +592,6 @@ function InboxSections({
   const workingCards = sections.working.map((row) => renderCard(row, true));
   const snoozedRows = sections.snoozed.map((row) => renderLine(row, "snoozed"));
   const settledRows = sections.settled.map((row) => renderLine(row, "settled"));
-  // The Later column is named after what it holds; sub-headers only when it holds both.
-  const bothLater = snoozedRows.length > 0 && settledRows.length > 0;
-  const laterKey: Section | "later" = bothLater
-    ? "later"
-    : snoozedRows.length > 0
-      ? "snoozed"
-      : "settled";
-  const laterTitle = laterKey === "later" ? "Later" : SECTION_TITLES[laterKey];
   const empty = (text: string) =>
     loading ? null : (
       <Text key="empty" style={styles.empty}>
@@ -606,31 +599,23 @@ function InboxSections({
       </Text>
     );
 
-  const column = (
-    key: Section | "later",
-    label: string,
-    count: number,
-    content: { children: ReactNode[]; sticky: number[] },
-    emptyText: string,
+  /** One section as a column pane: its header always visible, its body scrolling on its own. */
+  const pane = (
+    key: Section,
+    rows: ReactNode[],
+    emptyText: string | null,
+    bodyStyle: object = styles.paneFill,
   ) => (
-    <View style={styles.boardColumn}>
-      {header(key, label, count, true)}
+    <>
+      {header(key, SECTION_TITLES[key], rows.length, true)}
       {isOpen(key) ? (
-        <ScrollView
-          contentContainerStyle={styles.boardContent}
-          stickyHeaderIndices={content.sticky}
-        >
-          {content.children.length > 0 ? content.children : empty(emptyText)}
+        <ScrollView style={bodyStyle} contentContainerStyle={styles.boardContent}>
+          {rows.length > 0 ? rows : emptyText ? empty(emptyText) : null}
         </ScrollView>
       ) : null}
-    </View>
+    </>
   );
-  const laterContent = bothLater
-    ? stack([
-        { key: "snoozed", rows: snoozedRows },
-        { key: "settled", rows: settledRows },
-      ])
-    : { children: [...snoozedRows, ...settledRows], sticky: [] };
+
   const stacked = stack([
     ...attentionCards,
     <View key="spacer" style={styles.spacer} />,
@@ -684,27 +669,18 @@ function InboxSections({
         {loading ? <Text style={styles.empty}>Loading agents…</Text> : null}
         {columns ? (
           <View style={styles.board}>
-            {column(
-              "attention",
-              SECTION_TITLES.attention,
-              attentionCards.length,
-              { children: attentionCards, sticky: [] },
-              "Nothing needs attention",
-            )}
-            {column(
-              "working",
-              SECTION_TITLES.working,
-              workingCards.length,
-              { children: workingCards, sticky: [] },
-              "No agents working",
-            )}
-            {column(
-              laterKey,
-              laterTitle,
-              snoozedRows.length + settledRows.length,
-              laterContent,
-              "Nothing snoozed or settled",
-            )}
+            <View style={styles.boardColumn}>
+              {pane("attention", attentionCards, "Nothing needs attention")}
+            </View>
+            <View style={styles.boardColumn}>
+              {pane("working", workingCards, "No agents working")}
+            </View>
+            {/* Snoozed and Settled are peers of the other sections, stacked in one column:
+                Snoozed sized to its few rows, Settled filling the rest. */}
+            <View style={styles.boardColumn}>
+              {snoozedRows.length > 0 ? pane("snoozed", snoozedRows, null, styles.paneShort) : null}
+              {pane("settled", settledRows, "Nothing settled yet")}
+            </View>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.content} stickyHeaderIndices={stacked.sticky}>
