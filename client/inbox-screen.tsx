@@ -521,22 +521,27 @@ function InboxSections({
 
   /** A collapsible header; sticks to the top of its scroll view, so collapsing is always one tap away. */
   const header = (key: Section | "later", label: string, count: number, column = false) => (
-    <Pressable
-      key={`header-${key}`}
-      accessibilityRole="button"
-      accessibilityLabel={`${isOpen(key) ? "Collapse" : "Expand"} ${label}`}
-      accessibilityState={{ expanded: isOpen(key) }}
-      onPress={() => toggle(key)}
-      style={column ? styles.columnHeader : styles.sectionHeader}
-    >
-      <Text style={styles.sectionTitle}>{label}</Text>
-      <Text style={styles.sectionCount}>{count}</Text>
-      <Icon
-        name={isOpen(key) ? "ChevronDown" : "ChevronRight"}
-        size={14}
-        color={theme.colors.foregroundMuted}
-      />
-    </Pressable>
+    // On native, a sticky header is cloned with its style replaced, so the outer View only
+    // takes that replacement; the row layout lives on the Pressable inside.
+    <View key={`header-${key}`}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${isOpen(key) ? "Collapse" : "Expand"} ${label}`}
+        accessibilityState={{ expanded: isOpen(key) }}
+        onPress={() => toggle(key)}
+        style={column ? styles.columnHeader : styles.sectionHeader}
+      >
+        <Text style={styles.sectionTitle} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={styles.sectionCount}>{count}</Text>
+        <Icon
+          name={isOpen(key) ? "ChevronDown" : "ChevronRight"}
+          size={14}
+          color={theme.colors.foregroundMuted}
+        />
+      </Pressable>
+    </View>
   );
 
   /**
