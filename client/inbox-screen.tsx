@@ -391,9 +391,6 @@ function InboxSections({
       settings.showPlacement && branch && branch !== workspaceName?.trim()
         ? metaItem("branch", "GitBranch", branch)
         : null,
-      item.subagents > 0 && !settings.showSubagents
-        ? metaItem("subs", "Users", `${item.subagents} sub`)
-        : null,
       depth === 0 && item.parentKey ? metaItem("subagent", "CornerDownRight", "subagent") : null,
       delegatedLabel ? metaItem("delegated", "ArrowLeftRight", `from ${delegatedLabel}`) : null,
     ].filter(Boolean);
