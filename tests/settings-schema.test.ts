@@ -18,7 +18,7 @@ describe("settings documents", () => {
       "srv-beta/a": snoozeRecord(agent, now, now + 3_600_000),
     };
     const stored = JSON.parse(JSON.stringify({ records }));
-    expect(triageSettings.schema.parse(stored)).toEqual({ records });
-    expect(triageSettings.schema.parse({})).toEqual({ records: {} });
+    expect(triageSettings.schema.parse(stored)).toEqual({ records, baselineAt: null });
+    expect(triageSettings.schema.parse({})).toEqual({ records: {}, baselineAt: null });
   });
 });

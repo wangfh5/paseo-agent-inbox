@@ -64,10 +64,14 @@ export function useInbox(clockIntervalMs: number): Inbox {
   const showSubagents = settings?.showSubagents ?? null;
   const items = useMemo(
     () =>
-      loading || showSubagents === null || !triage.records
+      loading || showSubagents === null || !triage.records || triage.baselineAt === null
         ? null
-        : deriveInbox(monitor.entries, triage.records, { showSubagents, now }),
-    [loading, monitor.entries, now, showSubagents, triage.records],
+        : deriveInbox(monitor.entries, triage.records, {
+            showSubagents,
+            now,
+            baselineAt: triage.baselineAt,
+          }),
+    [loading, monitor.entries, now, showSubagents, triage.baselineAt, triage.records],
   );
   const summary = useMemo(
     () =>

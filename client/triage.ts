@@ -8,6 +8,7 @@ export type AttentionSource = {
   attentionTimestamp?: string | null;
   pendingPermissions: readonly { id: string }[];
   lastUserMessageAt: string | null;
+  createdAt?: string;
   lastError?: string;
   archivedAt?: string | null;
 };
@@ -69,24 +70,53 @@ export function wakesSnooze(event: NewEvent | null): boolean {
 
 export type TriageState = "settled" | "snoozed" | null;
 
+function isRunning(agent: AttentionSource): boolean {
+  return baseStateOf(agent) === "running";
+}
+
 /**
- * Whether the user's record still hides this agent from the attention queue. A record stops
- * applying once the agent shows a new event, once a snooze reaches its wake time, or once the
- * agent leaves attention (it was read natively, resumed, or started a new turn).
+ * True when the agent finished a turn the user has not settled yet. A turn starts with a user
+ * prompt (`lastUserMessageAt`, else `createdAt`) and stays unsettled after it finishes until the
+ * user settles it, however it was read: opening the chat clears Paseo's unread flag but not this.
+ * Turns from before `baselineAt`, when the inbox started tracking, count as settled so existing
+ * idle agents do not flood the queue.
  */
+export function hasUnsettledTurn(agent: AttentionSource, baselineAt: number): boolean {
+  if (isRunning(agent)) return false;
+  const startedAt = Date.parse(agent.lastUserMessageAt ?? agent.createdAt ?? "");
+  return startedAt > baselineAt;
+}
+
+/**
+ * Whether the inbox would show this agent in Needs attention without any triage record: Paseo's
+ * own attention (a pending permission, an error, an unread finished turn) or a turn the user has
+ * not settled. Running agents are working, not waiting.
+ */
+export function wantsAttention(agent: AttentionSource, baselineAt: number): boolean {
+  return baseStateOf(agent) === "attention" || hasUnsettledTurn(agent, baselineAt);
+}
+
+/**
+ * Whether a record still holds, ignoring whether the agent is running right now. A settle holds
+ * until the agent shows a new event (another prompt, permission request, error or finished turn);
+ * reading the chat is not an event. A snooze also ends at its wake time.
+ */
+export function recordHolds(record: TriageRecord, agent: AttentionSource, now: number): boolean {
+  if (record.kind === "snoozed") {
+    const until = record.until ? Date.parse(record.until) : Number.NaN;
+    if (!(until > now)) return false;
+  }
+  return !wakesSnooze(newEventSince(record.sig, signatureOf(agent)));
+}
+
+/** The user's triage of this agent as shown now. A running agent shows as working instead. */
 export function effectiveTriage(
   record: TriageRecord | undefined,
   agent: AttentionSource,
   now: number,
 ): TriageState {
-  if (!record) return null;
-  if (baseStateOf(agent) !== "attention") return null;
-  if (record.kind === "snoozed") {
-    const until = record.until ? Date.parse(record.until) : Number.NaN;
-    if (!(until > now)) return null;
-    return wakesSnooze(newEventSince(record.sig, signatureOf(agent))) ? null : "snoozed";
-  }
-  return newEventSince(record.sig, signatureOf(agent)) === null ? "settled" : null;
+  if (!record || isRunning(agent)) return null;
+  return recordHolds(record, agent, now) ? record.kind : null;
 }
 
 export function settleRecord(agent: AttentionSource, now: number): TriageRecord {
@@ -259,7 +289,7 @@ export function obsoleteKeys(
   for (const [key, record] of Object.entries(records)) {
     const agent = observation.agents.get(key);
     if (agent) {
-      if (agent.archivedAt || effectiveTriage(record, agent, now) === null) obsolete.push(key);
+      if (agent.archivedAt || !recordHolds(record, agent, now)) obsolete.push(key);
       continue;
     }
     const serverId = key.slice(0, key.indexOf("/"));

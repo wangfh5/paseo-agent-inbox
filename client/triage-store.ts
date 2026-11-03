@@ -16,6 +16,8 @@ let consecutiveFailures = 0;
 export type TriageStore = {
   /** Saved records with this client's pending changes applied; null while loading. */
   records: TriageRecords | null;
+  /** Epoch ms before which finished turns count as settled; null while loading. */
+  baselineAt: number | null;
   /** Set when the triage document cannot be read or written. */
   problem: string | null;
   apply(op: TriageOp): void;
@@ -31,19 +33,26 @@ export function useTriageStore(observation: Observation | null): TriageStore {
   const [pending, setPending] = useState<readonly TriageOp[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  // Stands in for the baseline until the first client has written it.
+  const [mountedAt] = useState(() => new Date().toISOString());
 
   useEffect(() => {
     void retry;
     if (state.status !== "ready" || state.saving || writeInFlight) return;
     if (consecutiveFailures >= MAX_FAILURES && pending.length === 0) return;
     const ops = pending;
-    const next = planTriageWrite(state.values.records, ops, observation, Date.now());
-    if (next === null) {
+    const planned = planTriageWrite(state.values.records, ops, observation, Date.now());
+    const needsBaseline = state.values.baselineAt === null;
+    if (planned === null && !needsBaseline) {
       if (ops.length > 0) setPending((current) => current.slice(ops.length));
       return;
     }
+    const values = {
+      records: planned ?? state.values.records,
+      baselineAt: state.values.baselineAt ?? mountedAt,
+    };
     writeInFlight = true;
-    void state.save({ ...state.values, records: next }, state.revision).then(async (ok) => {
+    void state.save(values, state.revision).then(async (ok) => {
       writeInFlight = false;
       if (ok) {
         consecutiveFailures = 0;
@@ -61,7 +70,7 @@ export function useTriageStore(observation: Observation | null): TriageStore {
       await state.reload();
       setRetry((value) => value + 1);
     });
-  }, [observation, pending, retry, state]);
+  }, [mountedAt, observation, pending, retry, state]);
 
   const saved = state.status === "ready" ? state.values.records : null;
   const records = useMemo(() => {
@@ -77,5 +86,12 @@ export function useTriageStore(observation: Observation | null): TriageStore {
     state.status === "invalid" || state.status === "error"
       ? `Inbox state unavailable: ${state.error}`
       : null;
-  return { records, problem: readProblem ?? problem, apply };
+  const baselineIso =
+    state.status === "ready"
+      ? (state.values.baselineAt ?? mountedAt)
+      : state.status === "loading"
+        ? null
+        : mountedAt;
+  const baselineAt = baselineIso === null ? null : Date.parse(baselineIso);
+  return { records, baselineAt, problem: readProblem ?? problem, apply };
 }

@@ -8,7 +8,13 @@ import {
   matches,
   parentAddress,
 } from "./monitor";
-import { type BaseState, baseStateOf, effectiveTriage, type TriageState } from "./triage";
+import {
+  type BaseState,
+  baseStateOf,
+  effectiveTriage,
+  type TriageState,
+  wantsAttention,
+} from "./triage";
 
 export type InboxItem = {
   /** `<serverId>/<agentId>`: the identity used for React keys and triage records. */
@@ -55,7 +61,7 @@ export function isSubagent(entry: AgentEntry): boolean {
 export function deriveInbox(
   entries: readonly AgentEntry[],
   records: TriageRecords,
-  options: { showSubagents: boolean; now: number },
+  options: { showSubagents: boolean; now: number; baselineAt: number },
 ): InboxItem[] {
   const subagentCounts = new Map<string, number>();
   const parents = new Map<AgentEntry, string>();
@@ -85,7 +91,8 @@ export function deriveInbox(
       host,
       base,
       triage,
-      needsAttention: base === "attention" && triage === null,
+      needsAttention:
+        base !== "running" && wantsAttention(entry.agent, options.baselineAt) && triage === null,
       parentKey,
       subagents: subagentCounts.get(key) ?? 0,
     });

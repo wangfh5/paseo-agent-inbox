@@ -41,6 +41,11 @@ export const triageSettings = defineSettings({
   version: 1,
   schema: z.object({
     records: z.record(z.string(), triageRecordSchema).default({}),
+    /**
+     * When the inbox started tracking turns, written once by the first client. Turns that began
+     * earlier count as settled, so installing the inbox does not flag every idle agent.
+     */
+    baselineAt: z.string().nullable().default(null),
   }),
 });
 

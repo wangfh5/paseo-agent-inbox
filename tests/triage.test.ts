@@ -5,17 +5,20 @@ import {
   baseStateOf,
   customSnoozeDefaults,
   effectiveTriage,
+  hasUnsettledTurn,
   newEventSince,
   nextWakeAt,
   obsoleteKeys,
   parseCustomSnooze,
   planTriageWrite,
+  recordHolds,
   settleRecord,
   signatureOf,
   snoozeOptions,
   snoozeRecord,
   snoozeUntil,
   UNOBSERVED_RECORD_TTL_MS,
+  wantsAttention,
 } from "../client/triage";
 import { entry, finished, permission } from "./fixtures";
 
@@ -117,11 +120,39 @@ describe("effectiveTriage", () => {
     expect(effectiveTriage(record, resynced, T0)).toBe("settled");
   });
 
-  test("settle ends on a new turn, and once the agent leaves attention", () => {
+  test("settle ends on a new turn or prompt, but not when the chat is read", () => {
     const record = settleRecord(waiting, T0);
     expect(effectiveTriage(record, agent(finished("2026-11-03T12:00:00Z")), T0)).toBeNull();
+    expect(
+      effectiveTriage(record, agent({ lastUserMessageAt: "2026-11-03T11:00:00Z" }), T0),
+    ).toBeNull();
+    // Opening the chat clears Paseo's unread flag; the settle still holds.
+    expect(effectiveTriage(record, agent({ status: "idle" }), T0)).toBe("settled");
+    // While running, the agent shows as working; the record is kept for later.
     expect(effectiveTriage(record, agent({ status: "running" }), T0)).toBeNull();
-    expect(effectiveTriage(record, agent({ status: "idle" }), T0)).toBeNull();
+    expect(recordHolds(record, agent({ status: "running" }), T0)).toBe(true);
+  });
+
+  test("a finished turn the user has not settled wants attention even after it was read", () => {
+    const baseline = Date.parse("2026-11-03T08:00:00Z");
+    const readTurn = agent({ lastUserMessageAt: "2026-11-03T09:00:00Z" });
+    expect(baseStateOf(readTurn)).toBe("idle");
+    expect(hasUnsettledTurn(readTurn, baseline)).toBe(true);
+    expect(wantsAttention(readTurn, baseline)).toBe(true);
+    // Turns from before the inbox started tracking count as settled.
+    const oldTurn = agent({ lastUserMessageAt: "2026-11-03T07:00:00Z" });
+    expect(wantsAttention(oldTurn, baseline)).toBe(false);
+    // Paseo's own unread flag still counts, whenever the turn started.
+    expect(wantsAttention({ ...oldTurn, ...finished("2026-11-03T07:30:00Z") }, baseline)).toBe(
+      true,
+    );
+    // A running turn is working, not waiting.
+    expect(
+      wantsAttention(
+        agent({ status: "running", lastUserMessageAt: "2026-11-03T09:00:00Z" }),
+        baseline,
+      ),
+    ).toBe(false);
   });
 
   test("snooze hides until its absolute wake time", () => {
@@ -245,14 +276,20 @@ describe("record lifecycle", () => {
   const key = "srv-alpha/agent-1";
   const remoteKey = "srv-beta/agent-9";
 
-  test("obsolete records: superseded, left attention, expired, or missing from a fully listed host", () => {
+  test("obsolete records: superseded, expired, or missing from a fully listed host", () => {
     const records = {
       [key]: settleRecord(waiting, T0),
+      "srv-alpha/read": settleRecord(waiting, T0),
       "srv-alpha/gone": settleRecord(waiting, T0),
       [remoteKey]: settleRecord(waiting, T0),
     };
     const observation = {
-      agents: new Map([[key, agent({ status: "running" })]]),
+      agents: new Map([
+        // A new prompt started another turn: the settle is superseded.
+        [key, agent({ status: "running", lastUserMessageAt: "2026-11-03T11:00:00Z" })],
+        // Read natively, nothing new: the settle stays.
+        ["srv-alpha/read", agent({ status: "idle" })],
+      ]),
       completeHosts: new Set(["srv-alpha"]),
     };
     // srv-beta is offline: its record is kept.
