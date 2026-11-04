@@ -242,9 +242,13 @@ describe("settle and snooze in the derived inbox", () => {
     expect(layout(items)).toEqual({ attention: [], working: ["A"], snoozed: [], settled: ["D"] });
   });
 
-  test("a new turn on a settled agent returns it to the queue", () => {
+  test("a new prompt on a settled agent returns it to the queue", () => {
     const records = { "srv-alpha/D": settleRecord(D.agent, NOW) };
-    const again = entry({ id: "D", title: "Solo", ...finished("2026-11-03T11:00:00Z") });
+    const again = entry({
+      id: "D",
+      title: "Solo",
+      ...finished("2026-11-03T11:00:00Z", { lastUserMessageAt: "2026-11-03T10:50:00Z" }),
+    });
     const items = deriveInbox([again], records, {
       showSubagents: false,
       now: NOW + HOUR,
@@ -392,6 +396,42 @@ describe("settling is manual, not reading", () => {
   test("an expired snooze returns to Needs attention even if the chat was read meanwhile", () => {
     const records = { "srv-alpha/R": snoozeRecord(read.agent, NOW - 2 * HOUR, NOW - HOUR) };
     expect(layout(deriveInbox([read], records, opts), records).attention).toEqual(["R"]);
+  });
+});
+
+describe("heartbeat agents", () => {
+  const BASELINE = Date.parse("2026-11-03T06:00:00Z");
+  // Last prompted by the user before the baseline; heartbeats run turns without a user prompt.
+  const monitor = (over = {}) =>
+    entry({ id: "M", title: "Monitor", lastUserMessageAt: "2026-11-02T08:00:00Z", ...over });
+  const opts = (now: number) => ({ showSubagents: false, now, baselineAt: BASELINE });
+  const records = { "srv-alpha/M": snoozeRecord(monitor().agent, NOW, NOW + 4 * HOUR) };
+
+  test("routine heartbeat replies stay snoozed, read or unread", () => {
+    const unread = monitor(finished("2026-11-03T11:00:00Z"));
+    expect(layout(deriveInbox([unread], records, opts(NOW + HOUR)), records).snoozed).toEqual([
+      "M",
+    ]);
+    expect(layout(deriveInbox([monitor()], records, opts(NOW + HOUR)), records).snoozed).toEqual([
+      "M",
+    ]);
+    const running = monitor({ status: "running" });
+    expect(layout(deriveInbox([running], records, opts(NOW + HOUR)), records).working).toEqual([
+      "M",
+    ]);
+  });
+
+  test("an error during the snooze surfaces at once", () => {
+    const failed = monitor({ status: "error", lastError: "job died" });
+    expect(layout(deriveInbox([failed], records, opts(NOW + HOUR)), records).attention).toEqual([
+      "M",
+    ]);
+  });
+
+  test("after the snooze ends, each heartbeat reply needs attention", () => {
+    const later = NOW + 5 * HOUR;
+    const reply = monitor(finished("2026-11-03T14:00:00Z"));
+    expect(layout(deriveInbox([reply], records, opts(later)), records).attention).toEqual(["M"]);
   });
 });
 

@@ -68,10 +68,16 @@ describe("newEventSince", () => {
     expect(newEventSince(stored, signatureOf(resynced))).toBeNull();
   });
 
-  test("a new attention timestamp is a finished turn", () => {
-    expect(newEventSince(stored, signatureOf(agent(finished("2026-11-03T11:00:00Z"))))).toBe(
-      "finished",
+  test("an automated turn (heartbeat) re-stamping attention is not a new event", () => {
+    // Heartbeat prompts are system notifications: lastUserMessageAt stays put.
+    expect(newEventSince(stored, signatureOf(agent(finished("2026-11-03T11:00:00Z"))))).toBeNull();
+  });
+
+  test("a turn the user started is a task even when attention was re-stamped too", () => {
+    const next = agent(
+      finished("2026-11-03T11:00:00Z", { lastUserMessageAt: "2026-11-03T10:30:00Z" }),
     );
+    expect(newEventSince(stored, signatureOf(next))).toBe("task");
   });
 
   test("a new permission id outranks everything", () => {
@@ -120,9 +126,9 @@ describe("effectiveTriage", () => {
     expect(effectiveTriage(record, resynced, T0)).toBe("settled");
   });
 
-  test("settle ends on a new turn or prompt, but not when the chat is read", () => {
+  test("settle ends on a new prompt, but not on a heartbeat turn or reading the chat", () => {
     const record = settleRecord(waiting, T0);
-    expect(effectiveTriage(record, agent(finished("2026-11-03T12:00:00Z")), T0)).toBeNull();
+    expect(effectiveTriage(record, agent(finished("2026-11-03T12:00:00Z")), T0)).toBe("settled");
     expect(
       effectiveTriage(record, agent({ lastUserMessageAt: "2026-11-03T11:00:00Z" }), T0),
     ).toBeNull();
@@ -161,7 +167,7 @@ describe("effectiveTriage", () => {
     expect(effectiveTriage(record, waiting, T0 + HOUR)).toBeNull();
   });
 
-  test("snooze wakes early on a new permission, error or finished turn", () => {
+  test("snooze wakes early on a new permission, error or prompt, not on a heartbeat turn", () => {
     const record = snoozeRecord(waiting, T0, T0 + 4 * HOUR);
     const now = T0 + HOUR;
     const withPermission = agent({
@@ -170,7 +176,12 @@ describe("effectiveTriage", () => {
     });
     expect(effectiveTriage(record, withPermission, now)).toBeNull();
     expect(effectiveTriage(record, agent({ status: "error", lastError: "x" }), now)).toBeNull();
-    expect(effectiveTriage(record, agent(finished("2026-11-03T10:30:00Z")), now)).toBeNull();
+    expect(
+      effectiveTriage(record, agent({ lastUserMessageAt: "2026-11-03T10:15:00Z" }), now),
+    ).toBeNull();
+    // A heartbeat finishing while snoozed keeps the snooze, read or unread.
+    expect(effectiveTriage(record, agent(finished("2026-11-03T10:30:00Z")), now)).toBe("snoozed");
+    expect(recordHolds(record, agent(finished("2026-11-03T10:30:00Z")), now)).toBe(true);
   });
 
   test("an ordinary status refresh does not wake a snooze", () => {
@@ -340,9 +351,11 @@ describe("record lifecycle", () => {
   });
 
   test("settling on a snapshot that is already stale leaves the newer event visible", () => {
-    // The user clicked Settle on the 09:00 attention, but a new turn finished at 10:30 first.
+    // The user clicked Settle on the 09:00 attention, but had already sent a new prompt at 10:00.
     const record = settleRecord(waiting, T0);
-    const latest = agent(finished("2026-11-03T10:30:00Z"));
+    const latest = agent(
+      finished("2026-11-03T10:30:00Z", { lastUserMessageAt: "2026-11-03T10:00:00Z" }),
+    );
     expect(effectiveTriage(record, latest, T0)).toBeNull();
     const observation = { agents: new Map([[key, latest]]), completeHosts: new Set(["srv-alpha"]) };
     expect(planTriageWrite({}, [{ type: "set", key, record }], observation, T0)).toBeNull();

@@ -42,12 +42,15 @@ export function signatureOf(agent: AttentionSource): AttentionSignature {
   };
 }
 
-export type NewEvent = "permission" | "error" | "finished" | "task";
+export type NewEvent = "permission" | "error" | "task";
 
 /**
- * The most important event in `current` that `stored` did not contain, or null when `current`
- * is the same attention the user already handled (a repeated sync, reconnect, title change or
- * other metadata update). Permission and error outrank a finished turn.
+ * The most important event in `current` that `stored` did not contain, or null when nothing new
+ * needs the user: a repeated sync, reconnect, title change or other metadata update, and also a
+ * turn the user did not start. Heartbeats, schedules and messages from other agents run turns
+ * without a user prompt (Paseo records them as system notifications, so `lastUserMessageAt` does
+ * not move); finishing one only re-stamps native attention, which is not an event here. A turn
+ * the user started is a `task`; a permission request or an error is always an event.
  */
 export function newEventSince(
   stored: AttentionSignature,
@@ -58,7 +61,6 @@ export function newEventSince(
   if (newAttention && current.attention?.startsWith("permission@")) return "permission";
   if (newAttention && current.attention?.startsWith("error@")) return "error";
   if (current.error !== null && current.error !== stored.error) return "error";
-  if (newAttention) return "finished";
   if (current.user !== null && current.user !== stored.user) return "task";
   return null;
 }
@@ -97,9 +99,10 @@ export function wantsAttention(agent: AttentionSource, baselineAt: number): bool
 }
 
 /**
- * Whether a record still holds, ignoring whether the agent is running right now. A settle holds
- * until the agent shows a new event (another prompt, permission request, error or finished turn);
- * reading the chat is not an event. A snooze also ends at its wake time.
+ * Whether a record still holds, ignoring whether the agent is running right now. A record holds
+ * until the agent shows a new event (a user prompt, a permission request or an error); reading the
+ * chat is not an event, nor is a heartbeat or other automated turn finishing. A snooze also ends at
+ * its wake time, after which those automated turns surface again through Paseo's unread flag.
  */
 export function recordHolds(record: TriageRecord, agent: AttentionSource, now: number): boolean {
   if (record.kind === "snoozed") {
