@@ -211,6 +211,18 @@ function useStyles(theme: Theme, compact: boolean) {
         fontSize: 12,
         fontVariant: ["tabular-nums" as const],
       },
+      // Fixed width, so "7h" and "19h" end and start in the same column on every row.
+      lineTime: { minWidth: 28, textAlign: "right" as const },
+      // On hover, a line's action takes the place of its time instead of adding a column.
+      lineActionOverlay: {
+        position: "absolute" as const,
+        top: 0,
+        bottom: 0,
+        right: inset,
+        justifyContent: "center" as const,
+      },
+      // Touch has no hover, so the action sits after the time; rows without one keep its width.
+      lineActionSlot: { width: 26 },
       actions: { ...row, gap: 2 },
       concealed: { opacity: 0 },
       action: {
@@ -480,7 +492,14 @@ function InboxSections({
     const name = title(item.entry);
     const until = Date.parse(records[item.key]?.until ?? "");
     const isHovered = hovered === item.key;
-    const showAction = alwaysShowActions || isHovered;
+    const action =
+      item.triage === null
+        ? null
+        : section === "snoozed"
+          ? iconAction(`Unsnooze ${name}`, "BellRing", () => restore(item))
+          : iconAction(`Undo settle ${name}`, "Undo2", () => restore(item));
+    // With a pointer, the hovered row's action covers its time (see lineActionOverlay).
+    const swapped = !alwaysShowActions && isHovered && action !== null;
     return (
       <View
         key={item.key}
@@ -523,20 +542,22 @@ function InboxSections({
             </View>
           ) : null}
           {section === "snoozed" && !Number.isNaN(until) ? (
-            <View style={styles.snoozeTime}>
+            <View style={[styles.snoozeTime, swapped && styles.concealed]}>
               <Icon name="AlarmClock" size={13} color={theme.colors.accent} />
-              <Text style={styles.snoozeText}>{relativeAge(now, until, false)}</Text>
+              <Text style={[styles.snoozeText, styles.lineTime]}>
+                {relativeAge(now, until, false)}
+              </Text>
             </View>
           ) : (
-            <Text style={styles.time}>{relativeAge(activityAt(item), now, true)}</Text>
+            <Text style={[styles.time, styles.lineTime, swapped && styles.concealed]}>
+              {relativeAge(activityAt(item), now, true)}
+            </Text>
           )}
         </Pressable>
-        {item.triage !== null ? (
-          <View style={!showAction ? styles.concealed : undefined}>
-            {section === "snoozed"
-              ? iconAction(`Unsnooze ${name}`, "BellRing", () => restore(item))
-              : iconAction(`Undo settle ${name}`, "Undo2", () => restore(item))}
-          </View>
+        {alwaysShowActions ? (
+          <View style={styles.lineActionSlot}>{action}</View>
+        ) : action ? (
+          <View style={[styles.lineActionOverlay, !isHovered && styles.concealed]}>{action}</View>
         ) : null}
       </View>
     );
