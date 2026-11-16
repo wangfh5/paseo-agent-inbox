@@ -83,6 +83,8 @@ export type MultiHostMonitor = {
   failedHosts: string[];
   /** Server ids whose full agent list loaded (not failed, not truncated). */
   completeHosts: string[];
+  /** Epoch ms when the current roster started loading; 0 before the first load. */
+  observedAt: number;
   isPending: boolean;
   isFetching: boolean;
   /** True while the previous host set's roster stands in for a new one that is still loading. */
@@ -185,6 +187,8 @@ export function useAllHostsMonitor(): MultiHostMonitor {
   const query = useQuery({
     queryKey,
     queryFn: async () => {
+      // Taken before any request goes out: the roster shows host state from no earlier than this.
+      const observedAt = Date.now();
       const settled = await Promise.all(
         online.map(async (host) => {
           try {
@@ -200,7 +204,7 @@ export function useAllHostsMonitor(): MultiHostMonitor {
         if (part.failed) failedHosts.push(part.host.label);
         else loaded.push({ host: part.host, data: part.data as MonitorData });
       }
-      return { ...mergeHostAgents(loaded), failedHosts };
+      return { ...mergeHostAgents(loaded), failedHosts, observedAt };
     },
     staleTime: 20_000,
     // A host going online or offline changes the key; keep the last roster on
@@ -214,6 +218,7 @@ export function useAllHostsMonitor(): MultiHostMonitor {
     truncated: data?.truncated ?? false,
     failedHosts: data?.failedHosts ?? [],
     completeHosts: data?.completeHosts ?? [],
+    observedAt: data?.observedAt ?? 0,
     isPending: query.isPending,
     isFetching: query.isFetching,
     isPlaceholderData: query.isPlaceholderData,

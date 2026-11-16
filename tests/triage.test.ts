@@ -302,6 +302,7 @@ describe("record lifecycle", () => {
         ["srv-alpha/read", agent({ status: "idle" })],
       ]),
       completeHosts: new Set(["srv-alpha"]),
+      observedAt: T0,
     };
     // srv-beta is offline: its record is kept.
     expect(obsoleteKeys(records, observation, T0).sort()).toEqual([key, "srv-alpha/gone"].sort());
@@ -309,7 +310,7 @@ describe("record lifecycle", () => {
 
   test("records on an unreachable host expire only after the TTL", () => {
     const records = { [remoteKey]: settleRecord(waiting, T0) };
-    const observation = { agents: new Map(), completeHosts: new Set<string>() };
+    const observation = { agents: new Map(), completeHosts: new Set<string>(), observedAt: T0 };
     expect(obsoleteKeys(records, observation, T0 + UNOBSERVED_RECORD_TTL_MS)).toEqual([]);
     expect(obsoleteKeys(records, observation, T0 + UNOBSERVED_RECORD_TTL_MS + 1)).toEqual([
       remoteKey,
@@ -325,6 +326,7 @@ describe("record lifecycle", () => {
     const observed = (snapshot: AgentSnapshot) => ({
       agents: new Map([[key, snapshot]]),
       completeHosts: new Set(["srv-alpha"]),
+      observedAt: T0,
     });
     const afterAsk = planTriageWrite({ [key]: record }, [], observed(asked), T0);
     expect(afterAsk).toEqual({});
@@ -337,6 +339,7 @@ describe("record lifecycle", () => {
     const observation = {
       agents: new Map([[key, waiting]]),
       completeHosts: new Set(["srv-alpha"]),
+      observedAt: T0,
     };
     expect(planTriageWrite(records, [], observation, T0)).toBeNull();
     expect(planTriageWrite(records, [], null, T0)).toBeNull();
@@ -357,8 +360,41 @@ describe("record lifecycle", () => {
       finished("2026-11-03T10:30:00Z", { lastUserMessageAt: "2026-11-03T10:00:00Z" }),
     );
     expect(effectiveTriage(record, latest, T0)).toBeNull();
-    const observation = { agents: new Map([[key, latest]]), completeHosts: new Set(["srv-alpha"]) };
+    const observation = {
+      agents: new Map([[key, latest]]),
+      completeHosts: new Set(["srv-alpha"]),
+      observedAt: T0,
+    };
     expect(planTriageWrite({}, [{ type: "set", key, record }], observation, T0)).toBeNull();
+  });
+
+  test("a client whose roster predates the record cannot drop it", () => {
+    // Another window or device shares the triage document but stopped refetching while hidden.
+    // Its roster still holds the prompt before the one the user settled on.
+    const settledOn = agent(
+      finished("2026-11-03T09:30:00Z", { lastUserMessageAt: "2026-11-03T09:00:00Z" }),
+    );
+    const record = settleRecord(settledOn, T0);
+    const stale = agent(
+      finished("2026-11-03T08:30:00Z", { lastUserMessageAt: "2026-11-03T08:00:00Z" }),
+    );
+    const observation = {
+      agents: new Map([[key, stale]]),
+      completeHosts: new Set(["srv-alpha"]),
+      observedAt: T0 - 2 * HOUR,
+    };
+    expect(obsoleteKeys({ [key]: record }, observation, T0)).toEqual([]);
+    expect(planTriageWrite({ [key]: record }, [], observation, T0)).toBeNull();
+  });
+
+  test("an older prompt timestamp is not a new task", () => {
+    const record = settleRecord(
+      agent(finished("2026-11-03T09:30:00Z", { lastUserMessageAt: "2026-11-03T09:00:00Z" })),
+      T0,
+    );
+    const older = agent({ lastUserMessageAt: "2026-11-03T08:00:00Z" });
+    expect(newEventSince(record.sig, signatureOf(older))).toBeNull();
+    expect(recordHolds(record, older, T0)).toBe(true);
   });
 
   test("undo deletes the record", () => {
