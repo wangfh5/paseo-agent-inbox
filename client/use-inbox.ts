@@ -11,12 +11,13 @@ import { type TriageStore, useTriageStore } from "./triage-store";
 export function buildObservation(
   entries: readonly AgentEntry[],
   completeHosts: readonly string[],
+  observedAt: number,
 ): Observation {
   const agents = new Map<string, AttentionSource>();
   for (const entry of entries) {
     agents.set(agentKey(hostOf(entry)?.serverId ?? "", entry.agent.id), entry.agent);
   }
-  return { agents, completeHosts: new Set(completeHosts) };
+  return { agents, completeHosts: new Set(completeHosts), observedAt };
 }
 
 /**
@@ -53,8 +54,9 @@ export function useInbox(clockIntervalMs: number): Inbox {
   const prefs = useSettings(inboxSettings);
   const loading = monitor.isPending || monitor.isPlaceholderData;
   const observation = useMemo(
-    () => (loading ? null : buildObservation(monitor.entries, monitor.completeHosts)),
-    [loading, monitor.entries, monitor.completeHosts],
+    () =>
+      loading ? null : buildObservation(monitor.entries, monitor.completeHosts, monitor.observedAt),
+    [loading, monitor.entries, monitor.completeHosts, monitor.observedAt],
   );
   const triage = useTriageStore(observation);
   const now = useClock(clockIntervalMs, triage.records);

@@ -223,7 +223,7 @@ describe("multiple hosts", () => {
   });
 
   test("records of an offline host survive; only fully listed hosts prune missing agents", () => {
-    const observation = buildObservation([onAlpha], ["srv-alpha"]);
+    const observation = buildObservation([onAlpha], ["srv-alpha"], 0);
     expect(observation.agents.has("srv-alpha/same-id")).toBe(true);
     expect(observation.completeHosts.has("srv-beta")).toBe(false);
   });

@@ -61,8 +61,15 @@ export function newEventSince(
   if (newAttention && current.attention?.startsWith("permission@")) return "permission";
   if (newAttention && current.attention?.startsWith("error@")) return "error";
   if (current.error !== null && current.error !== stored.error) return "error";
-  if (current.user !== null && current.user !== stored.user) return "task";
+  if (isNewerPrompt(stored.user, current.user)) return "task";
   return null;
+}
+
+/** A prompt counts only when it is later than the stored one; an older value is a stale roster. */
+function isNewerPrompt(stored: string | null, current: string | null): boolean {
+  if (current === null) return false;
+  if (stored === null) return true;
+  return Date.parse(current) > Date.parse(stored);
 }
 
 /** Events that end a snooze early. Every new event qualifies; plain status refreshes never do. */
@@ -272,6 +279,12 @@ export function applyOps(records: TriageRecords, ops: readonly TriageOp[]): Tria
 export type Observation = {
   agents: ReadonlyMap<string, AttentionSource>;
   completeHosts: ReadonlySet<string>;
+  /**
+   * Epoch ms when this roster started loading. Every client sharing the triage document prunes
+   * it, including hidden windows whose roster stopped refreshing hours ago; a roster older than a
+   * record cannot tell whether the record still applies.
+   */
+  observedAt: number;
 };
 
 /** Records for agents nobody can observe (host offline for a long time) expire after this. */
@@ -281,7 +294,8 @@ export const UNOBSERVED_RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * Keys whose record can never apply again. Dropping them is what makes "a new event ends the
  * settle" permanent: without it, a permission that appeared and resolved would let an old settle
  * hide the next turn. An agent that is missing from a fully listed host was archived or deleted.
- * Agents on offline, failed or truncated hosts keep their records until the TTL.
+ * Agents on offline, failed or truncated hosts keep their records until the TTL. A record written
+ * after the roster started loading is left alone: the roster cannot have seen what it settled.
  */
 export function obsoleteKeys(
   records: TriageRecords,
@@ -290,6 +304,7 @@ export function obsoleteKeys(
 ): string[] {
   const obsolete: string[] = [];
   for (const [key, record] of Object.entries(records)) {
+    if (Date.parse(record.at) > observation.observedAt) continue;
     const agent = observation.agents.get(key);
     if (agent) {
       if (agent.archivedAt || !recordHolds(record, agent, now)) obsolete.push(key);
